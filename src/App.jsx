@@ -1,77 +1,141 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import './agent/agent.css'
 import AskAgent from './agent/AskAgent.jsx'
 import GetDorAI from './agent/GetDorAI.jsx'
 import VoucherBoard from './agent/VoucherBoard.jsx'
+import Watchlist from './agent/Watchlist.jsx'
 import { getStats, getVouchers } from './agent/api.js'
+import { useWatchlistState, WatchlistContext } from './agent/watchlist.js'
+import { LangContext, loadLang, POPULAR, saveLang, STRINGS } from './i18n.js'
 
-// DorAI (formerly Price Pulse) is the shopping agent: ask, and each store answers. (The older
-// scraped-prices dashboard that sat below it was removed 2026-10-29; the
-// scrapers and their backend still live in scraper/ and backend/.)
+const BASE = import.meta.env.BASE_URL
+
+// Line icons for the "why" cards (24px grid, stroke only).
+const ICONS = [
+  <path key="search" d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.5-3.5M8 11h6M11 8v6" />,
+  <path key="compare" d="M4 7h16M4 12h10M4 17h13M18 10l3 2-3 2" />,
+  <path key="memory" d="M3 17l5-5 4 3 8-8M15 7h5v5" />,
+  <path key="watch" d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z" />,
+]
+
+/**
+ * DorAI's page: the search (hero) with its answer, then popular searches,
+ * how it works, why DorAI, the app and extension, and the public vouchers.
+ * Bangla first, with an English switch; the watchlist lives in this browser.
+ * (The older scraped-prices dashboard was removed 2026-10-29; the scrapers
+ * and their backend still live in scraper/ and backend/.)
+ */
 export default function App() {
+  const [lang, setLang] = useState(loadLang)
   const [vouchers, setVouchers] = useState({ status: 'loading', data: null })
-  const [agentStats, setAgentStats] = useState({ status: 'loading', data: null })
+  const [agentStats, setAgentStats] = useState(null)
+  const [watchOpen, setWatchOpen] = useState(false)
+  const [request, setRequest] = useState(null)
+  const watchlist = useWatchlistState()
+  const t = STRINGS[lang]
+  const langValue = useMemo(() => ({ lang, t }), [lang, t])
 
-  // The agent's voucher list and its running record (questions answered,
-  // average time) — both from the Cloudflare function the agent runs on.
+  useEffect(() => {
+    document.documentElement.lang = lang
+    saveLang(lang)
+  }, [lang])
+
+  // The agent's voucher list and its running record, from the Cloudflare function it runs on.
   useEffect(() => {
     getVouchers()
       .then((data) => setVouchers({ status: 'ready', data }))
       .catch(() => setVouchers({ status: 'error', data: null }))
     getStats()
-      .then((data) => setAgentStats({ status: 'ready', data }))
-      .catch(() => setAgentStats({ status: 'error', data: null }))
+      .then(setAgentStats)
+      .catch(() => setAgentStats(null))
   }, [])
 
+  const search = useCallback((ask) => setRequest({ ask, id: Date.now() }), [])
+  const closeWatch = useCallback(() => setWatchOpen(false), [])
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <a className="brand" href={import.meta.env.BASE_URL}>
-          <img
-            src={`${import.meta.env.BASE_URL}logo-wordmark.png`}
-            srcSet={`${import.meta.env.BASE_URL}logo-wordmark.png 1x, ${import.meta.env.BASE_URL}logo-wordmark-360.png 3x`}
-            alt="দরAI"
-            height="64"
-          />
-        </a>
-        <nav>
-          <a className="active" href="#ask">
-            Ask
-          </a>
-          <a href="#vouchers">
-            Vouchers <b>{vouchers.data?.count ?? '·'}</b>
-          </a>
-        </nav>
-        <div className={`sync${agentStats.status === 'error' ? ' offline' : ''}`}>
-          <i />
-          {agentStats.status === 'ready' ? 'Agent online' : agentStats.status === 'error' ? 'Agent unreachable' : 'Connecting…'}
+    <LangContext.Provider value={langValue}>
+      <WatchlistContext.Provider value={watchlist}>
+        <div className="page">
+          <header className="topbar">
+            <a className="brand" href={BASE} aria-label="DorAI">
+              <img src={`${BASE}logo-wordmark.png`} srcSet={`${BASE}logo-wordmark.png 1x, ${BASE}logo-wordmark-360.png 3x`} alt="দরAI" height="52" />
+            </a>
+            <nav className="topnav">
+              <a href="#how" className="hide-small">
+                {t.navHow}
+              </a>
+              <button type="button" className="nav-watch" onClick={() => setWatchOpen(true)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z" />
+                </svg>
+                {t.navWatchlist}
+                {watchlist.items.length > 0 && <b>{watchlist.items.length}</b>}
+              </button>
+              <button type="button" className="lang-switch" onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')} lang={lang === 'bn' ? 'en' : 'bn'}>
+                {t.switchTo}
+              </button>
+            </nav>
+          </header>
+
+          <main>
+            <AskAgent stats={agentStats} request={request} />
+
+            <section className="section" aria-labelledby="popular-title">
+              <h2 id="popular-title">{t.popularTitle}</h2>
+              <div className="popular">
+                {POPULAR.map((p) => (
+                  <button type="button" key={p.q} className="chip chip-large" onClick={() => search({ name: p.q, details: '' })}>
+                    {p[lang]}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="section" id="how" aria-labelledby="how-title">
+              <h2 id="how-title">{t.howTitle}</h2>
+              <ol className="how">
+                {t.how.map(([title, body], i) => (
+                  <li key={title}>
+                    <span className="how-step">{(i + 1).toLocaleString(lang === 'bn' ? 'bn-BD' : 'en')}</span>
+                    <h3>{title}</h3>
+                    <p>{body}</p>
+                  </li>
+                ))}
+              </ol>
+            </section>
+
+            <section className="section" aria-labelledby="why-title">
+              <h2 id="why-title">{t.whyTitle}</h2>
+              <ul className="why-grid">
+                {t.why.map(([title, body], i) => (
+                  <li key={title}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      {ICONS[i]}
+                    </svg>
+                    <h3>{title}</h3>
+                    <p>{body}</p>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <GetDorAI />
+
+            <VoucherBoard data={vouchers.data} status={vouchers.status} />
+          </main>
+
+          <footer className="footer">
+            <span>{t.footer}</span>
+            <a href="https://github.com/Atikul-Dipto/dorai" target="_blank" rel="noreferrer">
+              GitHub
+            </a>
+          </footer>
         </div>
-      </header>
 
-      <img
-        className="hero-banner"
-        src={`${import.meta.env.BASE_URL}banner.webp`}
-        alt="দরAI — স্মার্ট কেনাকাটার, সেরা সঙ্গী. সঠিক দামে খুঁজুন, স্মার্ট পরামর্শ পান, বুদ্ধিমত্তায় কিনুন."
-        width="1058"
-        height="303"
-      />
-
-      <AskAgent stats={agentStats.data} />
-
-      <GetDorAI />
-
-      <VoucherBoard data={vouchers.data} status={vouchers.status} />
-
-      <footer id="sources">
-        <span>Answers come live from Daraz and Cartup. Nothing here is a paid placement.</span>
-        <span>
-          Built for price-aware shopping ·{' '}
-          <a href="https://github.com/Atikul-Dipto" target="_blank" rel="noreferrer">
-            GitHub
-          </a>
-        </span>
-      </footer>
-    </main>
+        <Watchlist open={watchOpen} onClose={closeWatch} onCompare={(url) => search({ name: url, details: '' })} />
+      </WatchlistContext.Provider>
+    </LangContext.Provider>
   )
 }

@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { bestOffer, compareAcross, evidence, matchRows, photoId, recommendHere, relations, type Result, run, sameProduct, sharedPick, type StoreAnswer, standing } from './agent.ts'
 import { decodeIds, fnv1a, likeDaraz, parseCategoryPage, parseProductPage, pickCategories, requiredWords } from './cartup.ts'
 import { bestVoucher, campaignName, check, checkAll } from './eligibility.ts'
-import { buildIntent, cleanSearchQuery, coreQuery, describeQuery, groundedPrice, namesAProduct, parseRules, queryNumbers, restoreModelNumbers } from './intent.ts'
+import { buildIntent, cleanSearchQuery, coreQuery, describeQuery, groundedPrice, namesAProduct, parseRules, queryNumbers, readsAsDescription, restoreModelNumbers } from './intent.ts'
 import { foundWords, isBundle, missingWords, modelTokens, quantities, rank, storageOf, tokens, trusted, variantsOf } from './ranking.ts'
 import type { Intent, Listing, Voucher } from './types.ts'
 
@@ -188,6 +188,14 @@ test('a kind of item in the product box is a best-fit search, not a named produc
   for (const kind of ['monitor', 'Shampoo', 'mouse', 'formal shirt', 'Walton refrigerator']) assert.equal(namesAProduct(kind), false, kind)
   for (const name of ['Jedel KL69 61 Keys RGB Mechanical Keyboard', 'Samsung Galaxy A36', 'miniket rice 5kg', 'sony wh-1000xm5', 'Xiaomi Redmi Note 14'])
     assert.equal(namesAProduct(name), true, name)
+})
+
+// The page's one search box: names are searched as typed, descriptions go to the AI.
+test('one search box: a name is searched as typed, a description or question is read', () => {
+  for (const name of ['Logitech K120', 'Samsung Galaxy A36', 'monitor', 'Radhuni mustard oil 1 ltr', 'Nylon Backpack Durable Waterproof Shoulder Bag for Men', 'Jedel KL69 keyboard for gaming under 2000'])
+    assert.equal(readsAsDescription(name), false, name)
+  for (const text of ['A good wireless mouse for office work', 'which keyboard is best?', 'Find me the cheapest good keyboard', 'monitor 30k', 'mechanical keyboard under 3000 taka', 'ভালো ব্যাটারি সহ ১৫০০০ টাকার মধ্যে ফোন'])
+    assert.equal(readsAsDescription(text), true, text)
 })
 
 // From the log: "a4tech" came back as a gaming mouse, an office mouse and a USB

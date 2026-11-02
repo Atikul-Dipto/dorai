@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLang } from '../i18n.js'
 import { askAgent, compareLink } from './api.js'
 import { money } from './format.js'
+import { STORE_LABEL, STORE_LINK } from './stores.js'
+import { useWatchlist } from './watchlist.js'
 
-// Two boxes on purpose: a product name is searched exactly as typed and never
-// rewritten by the AI (long, specific titles are what it misreads); only the
-// "what do you need" text is read by the AI.
+// One big box: a product name (searched exactly as typed — long, specific
+// titles are what the AI misreads), a description or a question (read by the
+// AI; worker/intent.ts readsAsDescription decides), or a store link. The
+// optional second line is budget and needs, the only other text the AI reads.
 const EXAMPLES = [
-  { name: 'Jedel KL69 61 Keys RGB Mechanical Keyboard' },
   { name: 'Samsung Galaxy A36' },
-  { details: 'phone under 25k with good camera' },
-  { details: 'ভালো ব্যাটারি সহ ১৫০০০ টাকার মধ্যে ফোন' },
+  { name: 'A good wireless mouse for office work' },
+  { name: 'ভালো ব্যাটারি সহ ১৫০০০ টাকার মধ্যে ফোন' },
   { name: 'monitor', details: '30k' },
 ]
 const RECENT_KEY = 'pricepulse:recent-asks-v2'
@@ -18,17 +21,21 @@ const RECENT_KEY = 'pricepulse:recent-asks-v2'
 // step is estimated from typical timings; once the answer lands, the real
 // per-step timings replace the estimate.
 const STEPS = [
-  { key: 'understand', short: 'read', label: 'Reading what you need', typicalMs: 1500 },
-  { key: 'search', short: 'search', label: 'Searching Daraz live', typicalMs: 600 },
-  { key: 'remember', short: 'memory', label: 'Checking the prices we remember', typicalMs: 250 },
-  { key: 'check', short: 'vouchers', label: 'Checking vouchers against their terms', typicalMs: 50 },
+  { key: 'understand', short: 'read', typicalMs: 1500 },
+  { key: 'search', short: 'search', typicalMs: 600 },
+  { key: 'remember', short: 'memory', typicalMs: 250 },
+  { key: 'check', short: 'vouchers', typicalMs: 50 },
 ]
 
-const shortDate = (iso) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+const locale = (lang) => (lang === 'bn' ? 'bn-BD' : 'en-GB')
+const shortDate = (iso, lang) => new Date(iso).toLocaleDateString(locale(lang), { day: 'numeric', month: 'short' })
+const clock = (iso, lang) => new Date(iso).toLocaleTimeString(lang === 'bn' ? 'bn-BD' : [], { hour: '2-digit', minute: '2-digit' })
 const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`
 const tidy = (s) => (s ?? '').replace(/\s+/g, ' ').trim()
 const label = (ask) => [ask.name, ask.details].filter(Boolean).join(' — ') || ask.query || ''
 const sameAsk = (a, b) => tidy(a.name).toLowerCase() === tidy(b.name).toLowerCase() && tidy(a.details).toLowerCase() === tidy(b.details).toLowerCase()
+// Roughly what the agent will hand to the AI (the real rule is worker/intent.ts), for the progress list only.
+const readsText = (ask) => Boolean(ask.details) || /[ঀ-৿?]/.test(ask.name) || ask.name.split(' ').length > 4
 
 function loadRecent() {
   try {
@@ -67,42 +74,53 @@ function setUrlAsk(ask) {
     if (ask.name) url.searchParams.set('name', ask.name)
     if (ask.details) url.searchParams.set('details', ask.details)
   }
+  url.hash = ''
   window.history.pushState(ask, '', url)
 }
 
 function Progress({ elapsed, readsDetails }) {
-  // With no "what do you need" text there's nothing for the AI to read.
+  const { t } = useLang()
+  // With nothing for the AI to read, that step is skipped.
   const steps = readsDetails ? STEPS : STEPS.slice(1)
   const ends = steps.map((_, i) => steps.slice(0, i + 1).reduce((sum, s) => sum + s.typicalMs, 0))
   const current = ends.findIndex((end) => elapsed < end)
   const active = current === -1 ? steps.length - 1 : current
   return (
-    <div className="agent-progress" role="status" aria-live="polite">
+    <div className="progress" role="status" aria-live="polite">
       <ol>
         {steps.map((step, index) => (
           <li key={step.key} className={index < active ? 'done' : index === active ? 'active' : ''}>
             <i aria-hidden="true" />
-            {step.label}
+            {t.steps[step.key]}
           </li>
         ))}
       </ol>
-      <span className="agent-timer">{seconds(elapsed)}</span>
+      <span className="progress-timer">{seconds(elapsed)}</span>
+      <div className="skeleton-row" aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="skeleton-card">
+            <i />
+            <b />
+            <b />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
 function Understood({ intent }) {
+  const { t } = useLang()
   const named = intent.mode === 'product'
   const wishes = []
   if (!named && intent.productType) wishes.push(intent.productType)
   if (intent.brand && !named) wishes.push(intent.brand)
   if (intent.minPrice && intent.maxPrice) wishes.push(`${money(intent.minPrice)}–${money(intent.maxPrice)}`)
-  else if (intent.maxPrice) wishes.push(`up to ${money(intent.maxPrice)}`)
-  else if (intent.minPrice) wishes.push(`from ${money(intent.minPrice)}`)
-  const readBy = { llm: 'needs read by AI, budget checked against your words', rules: 'needs read by rules (AI busy)', typed: 'searched exactly as typed' }
+  else if (intent.maxPrice) wishes.push(`≤ ${money(intent.maxPrice)}`)
+  else if (intent.minPrice) wishes.push(`≥ ${money(intent.minPrice)}`)
   return (
     <p className="understood">
-      <span>{named ? 'Searching for' : 'Looking for'}</span>
+      <span>{named ? t.understoodName : t.understoodNeed}</span>
       {named && <b>“{intent.searchQuery}”</b>}
       {wishes.map((p) => (
         <b key={p}>{p}</b>
@@ -112,29 +130,30 @@ function Understood({ intent }) {
           {f}
         </b>
       ))}
-      <small>{readBy[intent.source]}</small>
+      <small>{t.readBy[intent.source]}</small>
     </p>
   )
 }
 
 function PriceMemory({ listing, history }) {
+  const { t, lang } = useLang()
   if (!history) {
     return (
       <div className="memory">
-        <span>Price memory</span>
-        <strong>New</strong>
-        <small>First time we've seen it. Saved for next time.</small>
+        <span>{t.memory}</span>
+        <strong>{t.memoryNew}</strong>
+        <small>{t.memoryNewNote}</small>
       </div>
     )
   }
   const diff = listing.price - history.lastPrice
   return (
     <div className="memory">
-      <span>Last time we checked</span>
+      <span>{t.lastChecked}</span>
       <strong>{money(history.lastPrice)}</strong>
       <small className={diff < 0 ? 'down' : diff > 0 ? 'up' : ''}>
-        {diff === 0 ? 'No change' : `${diff < 0 ? '↓' : '↑'} ${money(Math.abs(diff))}`} since {shortDate(history.lastSeen)} · lowest{' '}
-        {money(history.lowestPrice)} · {history.checks} check{history.checks === 1 ? '' : 's'}
+        {diff === 0 ? t.noChange : `${diff < 0 ? '↓' : '↑'} ${money(Math.abs(diff))}`} · {t.since} {shortDate(history.lastSeen, lang)} · {t.lowest}{' '}
+        {money(history.lowestPrice)}
       </small>
     </div>
   )
@@ -143,10 +162,11 @@ function PriceMemory({ listing, history }) {
 const STATUS_LABEL = { applies: 'Applies', conditional: 'Applies if…', not_applicable: "Doesn't apply" }
 
 function VoucherChecks({ checks }) {
+  const { t } = useLang()
   if (!checks.length) return null
   return (
     <div className="voucher-checks">
-      <h4>Vouchers checked</h4>
+      <h4>{t.vouchersChecked}</h4>
       <ul>
         {checks.map((c, i) => (
           <li key={i} className={c.status}>
@@ -174,8 +194,8 @@ function Seller({ listing }) {
   return (
     <p className="seller">
       {listing.seller}
-      {listing.officialStore && <b className="mall">Daraz Mall</b>}
-      {listing.location === 'Overseas' && <b className="overseas">Ships from overseas</b>}
+      {listing.officialStore && <b className="badge badge-strong">Daraz Mall</b>}
+      {listing.location === 'Overseas' && <b className="badge badge-warm">Ships from overseas</b>}
       {listing.rating ? (
         <span>
           ★ {listing.rating.toFixed(1)} ({listing.reviews})
@@ -188,8 +208,6 @@ function Seller({ listing }) {
   )
 }
 
-const STORE_LABEL = { daraz: 'Daraz', cartup: 'Cartup', othoba: 'Othoba' }
-
 function StoreTag({ site }) {
   return <span className={`store-tag ${site}`}>{STORE_LABEL[site] ?? site}</span>
 }
@@ -201,8 +219,23 @@ function trustLine(listing) {
   return ' · no ratings yet'
 }
 
+function SaveButton({ listing }) {
+  const { t } = useLang()
+  const watchlist = useWatchlist()
+  const saved = watchlist.has(listing.itemId)
+  return (
+    <button type="button" className={`btn btn-ghost save-btn${saved ? ' saved' : ''}`} aria-pressed={saved} onClick={() => watchlist.toggle(listing)}>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z" />
+      </svg>
+      {saved ? t.saved : t.save}
+    </button>
+  )
+}
+
 /** One store's recommended option: its own pick, never compared away. */
 function StorePick({ store }) {
+  const { t } = useLang()
   const { recommended: result, why, label, site } = store
   const { listing, history, bestVoucher, finalPrice } = result
   const [imgOk, setImgOk] = useState(true)
@@ -211,13 +244,13 @@ function StorePick({ store }) {
       <div className="store-pick-top">
         <div className="store-pick-media">
           {listing.image && imgOk ? (
-            <img src={listing.image} alt="" referrerPolicy="no-referrer" onError={() => setImgOk(false)} />
+            <img src={listing.image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setImgOk(false)} />
           ) : (
             <span>{listing.name.slice(0, 2)}</span>
           )}
         </div>
         <div className="store-pick-head">
-          <p className="eyebrow">Recommended on {label}</p>
+          <p className="eyebrow">{t.recommendedOn(label)}</p>
           <h3>{listing.name}</h3>
           {listing.alsoNamed && <p className="also-named">Listed in {label}'s search as “{listing.alsoNamed}”</p>}
           <Seller listing={listing} />
@@ -225,28 +258,28 @@ function StorePick({ store }) {
       </div>
 
       <div className="price-grid">
-        <div>
-          <span>Price</span>
+        <div className="price-main">
+          <span>{t.price}</span>
           <strong>{money(listing.price)}</strong>
           {listing.originalPrice ? (
             <small>
-              <del>{money(listing.originalPrice)}</del> {listing.discountPercent}% off
+              <del>{money(listing.originalPrice)}</del> {listing.discountPercent}% {t.off}
             </small>
           ) : (
-            <small>No listed discount</small>
+            <small>{t.noDiscount}</small>
           )}
         </div>
         <div className={bestVoucher ? 'with-voucher' : ''}>
-          <span>With voucher</span>
+          <span>{t.withVoucher}</span>
           <strong>{bestVoucher ? money(finalPrice) : '—'}</strong>
-          <small>{bestVoucher ? `${bestVoucher.voucher.title} −${money(bestVoucher.saving)}` : site === 'daraz' ? 'No public voucher fits' : 'Not tracked yet'}</small>
+          <small>{bestVoucher ? `${bestVoucher.voucher.title} −${money(bestVoucher.saving)}` : site === 'daraz' ? t.noVoucher : t.notTracked}</small>
         </div>
         <PriceMemory listing={listing} history={history} />
       </div>
 
       {bestVoucher?.conditions.length > 0 && (
         <div className="conditions">
-          <span>Only if</span>
+          <span>{t.onlyIf}</span>
           <ul>
             {bestVoucher.conditions.map((c) => (
               <li key={c}>{c}</li>
@@ -257,26 +290,30 @@ function StorePick({ store }) {
 
       {why && <p className="why">{why}</p>}
       {result.hints.length > 0 && (
-        <ul className="agent-notes">
+        <ul className="notes">
           {result.hints.map((h) => (
             <li key={h}>{h}</li>
           ))}
         </ul>
       )}
 
-      <a className="buy-btn best-buy" href={listing.url} target="_blank" rel="noreferrer">
-        Open on {label} ↗
-      </a>
+      <div className="pick-actions">
+        <a className="btn btn-primary" href={listing.url} target="_blank" rel="noreferrer">
+          {t.open(label)}
+        </a>
+        <SaveButton listing={listing} />
+      </div>
     </article>
   )
 }
 
 /** One store's other matches, each matched to the product: its other sellers, other sizes, then close matches. */
 function StoreMatches({ store, named }) {
+  const { t } = useLang()
   if (!store.matches.length) return null
   return (
     <div className="store-matches">
-      <h4>{named ? `More on ${store.label}` : `Also worth a look on ${store.label}`}</h4>
+      <h4>{named ? t.moreOn(store.label) : t.alsoOn(store.label)}</h4>
       <ul>
         {store.matches.map((r) => (
           <li key={r.listing.itemId}>
@@ -307,17 +344,16 @@ function StoreMatches({ store, named }) {
 
 /** One store's whole answer. Each store gets one of these, side by side. */
 function StoreSection({ store, named }) {
+  const { t } = useLang()
   const count = (store.recommended ? 1 : 0) + store.matches.length
   return (
     <section className={`store-section ${store.site}`}>
       <header className="store-section-head">
         <StoreTag site={store.site} />
-        <span>
-          {count ? `${count} match${count > 1 ? 'es' : ''}` : 'No match'}
-        </span>
+        <span>{t.matches(count)}</span>
         {store.link && (
           <a href={store.link} target="_blank" rel="noreferrer">
-            {store.label}'s own results ↗
+            {t.storeResults(store.label)}
           </a>
         )}
       </header>
@@ -332,6 +368,7 @@ function StoreSection({ store, named }) {
 const categoryLabel = (slug) => slug.replace(/_\d+$/, '').replace(/_+/g, ' ')
 
 function Answer({ answer }) {
+  const { t, lang } = useLang()
   const named = answer.intent.mode === 'product'
   const stores = answer.stores ?? []
   const notes = []
@@ -341,24 +378,21 @@ function Answer({ answer }) {
   if (answer.skippedSuspicious) {
     notes.push(`Left out ${answer.skippedSuspicious} Daraz listing${answer.skippedSuspicious > 1 ? 's' : ''} priced far below the rest — usually parts, accessories, copies or placeholder prices.`)
   }
+  const where = stores.map((s) => s.label).join(', ') + (answer.cartupCategories?.length > 0 ? ` (Cartup: ${answer.cartupCategories.map(categoryLabel).join(', ')})` : '')
 
   return (
     <section className="answer" aria-live="polite">
       <Understood intent={answer.intent} />
-      <p className="searched-where">
-        Searched {stores.map((s) => s.label).join(', ')}
-        {answer.cartupCategories?.length > 0 && ` (Cartup's ${answer.cartupCategories.map(categoryLabel).join(' and ')} pages)`} · prices checked live at{' '}
-        {new Date(answer.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </p>
+      <p className="searched-where">{t.searched(where, clock(answer.checkedAt, lang))}</p>
 
-      <div className="stores-grid" style={{ "--stores": stores.length }}>
+      <div className="stores-grid" style={{ '--stores': stores.length }}>
         {stores.map((s) => (
           <StoreSection key={s.site} store={s} named={named} />
         ))}
       </div>
 
       {notes.length > 0 && (
-        <ul className="agent-notes">
+        <ul className="notes">
           {notes.map((n) => (
             <li key={n}>{n}</li>
           ))}
@@ -367,7 +401,7 @@ function Answer({ answer }) {
 
       <footer className="answer-meta">
         <span>
-          Answered in <b>{seconds(answer.timingsMs.total)}</b>
+          {t.answeredIn} <b>{seconds(answer.timingsMs.total)}</b>
           {STEPS.filter((s) => answer.timingsMs[s.key] != null && (s.key !== 'understand' || answer.intent.source !== 'typed')).map((s) => (
             <i key={s.key}>
               {s.short} {seconds(answer.timingsMs[s.key])}
@@ -379,7 +413,7 @@ function Answer({ answer }) {
       </footer>
 
       <details className="caveats">
-        <summary>What the agent can and can't check</summary>
+        <summary>{t.caveats}</summary>
         <ul>
           {answer.caveats.map((c) => (
             <li key={c}>{c}</li>
@@ -393,6 +427,7 @@ function Answer({ answer }) {
 
 /** A product someone is looking at (a pasted or shared link), on every store. */
 function Comparison({ answer }) {
+  const { t, lang } = useLang()
   const source = answer.source.listing
   const sourceStore = answer.stores.find((s) => s.site === source.site)
   const other = answer.stores.find((s) => s.site !== source.site && s.recommended)
@@ -402,39 +437,35 @@ function Comparison({ answer }) {
     // A store that couldn't be checked: no claim about the best price.
     verdict = (
       <>
-        <b>Couldn't check {unchecked.join(' or ')} just now.</b> Try again in a few minutes.
+        <b>{t.couldntCheck(unchecked.join(' / '))}</b> {t.tryLater}
       </>
     )
   } else if (answer.cheaper) {
-    const where = answer.cheaper.site === source.site ? `from another seller on ${answer.cheaper.label}` : `on ${answer.cheaper.label}`
+    const where = answer.cheaper.site === source.site ? t.fromOtherSeller(answer.cheaper.label) : t.onStore(answer.cheaper.label)
     verdict = (
       <>
-        <b className="cheaper">{money(answer.cheaper.saving)} cheaper {where}</b> for the same product.
+        <b className="cheaper">{t.cheaperWhere(money(answer.cheaper.saving), where)}</b> {t.sameProduct}
       </>
     )
   } else {
     verdict = (
       <>
-        <b>This is the best price we found.</b>{' '}
-        {other ? `${other.label} has it for ${money(other.recommended.finalPrice)}.` : `No other store lists it right now.`}
+        <b>{t.bestFound}</b> {other ? t.elsewhere(other.label, money(other.recommended.finalPrice)) : t.nowhereElse}
       </>
     )
   }
   return (
     <section className="answer" aria-live="polite">
       <p className="understood">
-        <span>Comparing</span>
+        <span>{t.comparing}</span>
         <b>“{source.name}”</b>
         <small>
-          {money(answer.source.finalPrice)} on {sourceStore?.label ?? source.site}
+          {money(answer.source.finalPrice)} · {sourceStore?.label ?? source.site}
         </small>
       </p>
       <p className="compare-verdict">{verdict}</p>
-      <p className="searched-where">
-        Checked {answer.stores.map((s) => s.label).join(', ')} {answer.cached ? 'at' : 'live at'}{' '}
-        {new Date(answer.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </p>
-      <div className="stores-grid" style={{ "--stores": answer.stores.length }}>
+      <p className="searched-where">{t.searched(answer.stores.map((s) => s.label).join(', '), clock(answer.checkedAt, lang))}</p>
+      <div className="stores-grid" style={{ '--stores': answer.stores.length }}>
         {answer.stores.map((s) => (
           <StoreSection key={s.site} store={s} named />
         ))}
@@ -443,26 +474,41 @@ function Comparison({ answer }) {
   )
 }
 
-// A Daraz, Cartup or Othoba product link, typed, pasted or shared from their apps.
-const STORE_LINK = /https?:\/\/\S*(daraz\.com\.bd|cartup\.com|othoba\.com)\/\S/i
+function SearchIcon() {
+  return (
+    <svg className="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  )
+}
 
-export default function AskAgent({ stats }) {
+/**
+ * The hero search and its answer. `request` ({ ask, id }) runs a search
+ * started elsewhere on the page: a popular search, or "compare" in the watchlist.
+ */
+export default function AskAgent({ stats, request }) {
+  const { t, lang } = useLang()
   const [form, setForm] = useState(askFromUrl)
+  const [showDetails, setShowDetails] = useState(() => Boolean(askFromUrl().details))
   const [state, setState] = useState({ status: 'idle', answer: null, error: null, asked: null })
   const [elapsed, setElapsed] = useState(0)
   const [recent, setRecent] = useState(loadRecent)
   const controller = useRef(null)
   const nameRef = useRef(null)
+  const resultsRef = useRef(null)
 
-  const run = useCallback((raw, { push = true } = {}) => {
+  const run = useCallback((raw, { push = true, scroll = false } = {}) => {
     const ask = { name: tidy(raw.name), details: tidy(raw.details) }
     if ((ask.name + ask.details).length < 2) return
     controller.current?.abort()
     const ctrl = new AbortController()
     controller.current = ctrl
     setForm(ask)
+    if (ask.details) setShowDetails(true)
     if (push) setUrlAsk(ask)
     setState({ status: 'asking', answer: null, error: null, asked: ask })
+    if (scroll) window.requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     const started = performance.now()
     setElapsed(0)
     const tick = window.setInterval(() => setElapsed(performance.now() - started), 100)
@@ -501,111 +547,127 @@ export default function AskAgent({ stats }) {
     return () => window.removeEventListener('popstate', onPop)
   }, [run])
 
+  useEffect(() => {
+    if (request) run(request.ask, { scroll: true })
+  }, [request, run])
+
   const asking = state.status === 'asking'
   const chips = recent.length ? recent : EXAMPLES
   const ready = (tidy(form.name) + tidy(form.details)).length >= 2
 
   return (
-    <section className="ask" id="ask">
-      <div className="ask-head">
-        <p className="eyebrow">Shopping agent · Daraz + Cartup + Othoba</p>
-        <h1>
-          Name it, or describe it.
-          <br />
-          <em>Get the best price</em> in seconds.
-        </h1>
-        <p className="ask-copy">
-          Type a product's name and each store shows you its best offer of exactly that product — or just the kind
-          of thing ("monitor") and you get the best fit for your budget. Add what you need, in English or বাংলা. It
-          searches Daraz, Cartup and Othoba live, shows every offer of the product on each, remembers the price it saw last
-          time, and checks which public vouchers really fit.
-        </p>
-      </div>
+    <>
+      <section className="hero" id="search">
+        <p className="hero-badge">{t.badge}</p>
+        <h1>{t.heroTitle}</h1>
+        <p className="hero-copy">{t.heroCopy}</p>
 
-      <form
-        className="ask-form"
-        onSubmit={(event) => {
-          event.preventDefault()
-          run(form)
-        }}
-      >
-        <div className="ask-field">
-          <label htmlFor="ask-name">Product or kind of item</label>
-          <input
-            id="ask-name"
-            ref={nameRef}
-            value={form.name}
-            onChange={(event) => setForm((f) => ({ ...f, name: event.target.value }))}
-            placeholder="e.g. Jedel KL69 61 Keys RGB Mechanical Keyboard"
-            autoComplete="off"
-            enterKeyHint="search"
-            maxLength={600}
-          />
-          <small>Searched exactly as you type it. A full name gets that product first. Or paste a Daraz, Cartup or Othoba product link to compare it.</small>
-        </div>
-        <div className="ask-field">
-          <label htmlFor="ask-details">
-            What do you need? <span>optional</span>
-          </label>
-          <input
-            id="ask-details"
-            value={form.details}
-            onChange={(event) => setForm((f) => ({ ...f, details: event.target.value }))}
-            placeholder="e.g. under 25k, good camera — or ১৫০০০ টাকার মধ্যে ভালো ব্যাটারি"
-            autoComplete="off"
-            enterKeyHint="search"
-            maxLength={300}
-          />
-          <small>Features and budget. On its own, the agent finds the best match for it.</small>
-        </div>
-        <div className="ask-actions">
-          <button type="submit" className="ask-submit" disabled={asking || !ready}>
-            {asking ? 'Finding…' : 'Find it'}
-          </button>
-          {(form.name || form.details) && !asking && (
-            <button
-              type="button"
-              className="ask-reset"
-              onClick={() => {
-                setForm({ name: '', details: '' })
-                nameRef.current?.focus()
-              }}
-            >
-              Clear
+        <form
+          className="search"
+          role="search"
+          onSubmit={(event) => {
+            event.preventDefault()
+            run(form)
+          }}
+        >
+          <div className="search-row">
+          <div className="search-box">
+            <SearchIcon />
+            <label htmlFor="ask-name" className="visually-hidden">
+              {t.searchLabel}
+            </label>
+            <input
+              id="ask-name"
+              ref={nameRef}
+              value={form.name}
+              onChange={(event) => setForm((f) => ({ ...f, name: event.target.value }))}
+              placeholder={t.searchPlaceholder}
+              autoComplete="off"
+              enterKeyHint="search"
+              maxLength={600}
+            />
+            {(form.name || form.details) && !asking && (
+              <button
+                type="button"
+                className="search-clear"
+                aria-label={t.clear}
+                onClick={() => {
+                  setForm({ name: '', details: '' })
+                  nameRef.current?.focus()
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+            <button type="submit" className="btn btn-primary search-submit" disabled={asking || !ready}>
+              {asking ? t.finding : t.submit}
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+
+          {showDetails ? (
+            <div className="details-box">
+              <label htmlFor="ask-details">{t.detailsLabel}</label>
+              <input
+                id="ask-details"
+                value={form.details}
+                onChange={(event) => setForm((f) => ({ ...f, details: event.target.value }))}
+                placeholder={t.detailsPlaceholder}
+                autoComplete="off"
+                enterKeyHint="search"
+                maxLength={300}
+              />
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => {
+                  setShowDetails(false)
+                  setForm((f) => ({ ...f, details: '' }))
+                }}
+              >
+                {t.hideDetails}
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn-link add-details" onClick={() => setShowDetails(true)}>
+              {t.addDetails}
             </button>
           )}
+          <p className="search-hint">{t.searchHint}</p>
+        </form>
+
+        <div className="chips">
+          <span>{recent.length ? t.recentLabel : t.tryLabel}</span>
+          {chips.map((ask) => (
+            <button type="button" className="chip" key={label(ask)} onClick={() => run(ask)} disabled={asking}>
+              {ask.name}
+              {ask.name && ask.details && ' · '}
+              {ask.details}
+            </button>
+          ))}
         </div>
-      </form>
 
-      <div className="ask-chips">
-        <span>{recent.length ? 'Recent' : 'Try'}</span>
-        {chips.map((ask) => (
-          <button type="button" key={label(ask)} onClick={() => run(ask)} disabled={asking}>
-            {ask.name && <b>{ask.name}</b>}
-            {ask.name && ask.details && ' · '}
-            {ask.details}
-          </button>
-        ))}
-      </div>
-
-      {stats?.totals?.asks > 0 && (
-        <p className="ask-record">
-          {stats.totals.asks.toLocaleString('en-US')} questions answered so far · average {seconds(stats.totals.avg_ms ?? 0)} ·{' '}
-          {(stats.tracked?.listings ?? 0).toLocaleString('en-US')} Daraz products in its price memory
+        <p className="hero-stores">
+          <span className="live-dot" aria-hidden="true" />
+          {t.liveFrom}: <span className="store-tag daraz">Daraz</span> <span className="store-tag cartup">Cartup</span> <span className="store-tag othoba">Othoba</span>
+          {stats?.totals?.asks > 0 && <em>{t.record(stats.totals.asks.toLocaleString(locale(lang)), seconds(stats.totals.avg_ms ?? 0))}</em>}
         </p>
-      )}
+      </section>
 
-      {asking && <Progress elapsed={elapsed} readsDetails={Boolean(state.asked?.details)} />}
-      {state.status === 'error' && (
-        <div className="agent-error" role="alert">
-          <strong>The agent couldn't answer “{label(state.asked)}”.</strong>
-          <p>{state.error}</p>
-          <button type="button" className="outline-btn" onClick={() => run(state.asked, { push: false })}>
-            Try again
-          </button>
-        </div>
-      )}
-      {state.status === 'done' && state.answer && (state.answer.source ? <Comparison answer={state.answer} /> : <Answer answer={state.answer} />)}
-    </section>
+      <div className="results" id="results" ref={resultsRef}>
+        {asking && <Progress elapsed={elapsed} readsDetails={readsText(state.asked)} />}
+        {state.status === 'error' && (
+          <div className="error-box" role="alert">
+            <strong>{t.errorTitle(label(state.asked))}</strong>
+            <p>{state.error}</p>
+            <button type="button" className="btn btn-ghost" onClick={() => run(state.asked, { push: false })}>
+              {t.tryAgain}
+            </button>
+          </div>
+        )}
+        {state.status === 'done' && state.answer && (state.answer.source ? <Comparison answer={state.answer} /> : <Answer answer={state.answer} />)}
+      </div>
+    </>
   )
 }

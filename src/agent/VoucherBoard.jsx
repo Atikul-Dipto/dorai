@@ -1,4 +1,24 @@
+import { useLang } from '../i18n.js'
 import { money } from './format.js'
+
+const COPY = {
+  bn: {
+    eyebrow: 'এজেন্ট যা মিলিয়ে দেখে',
+    title: 'Daraz-এর পাবলিক ভাউচার, এখন',
+    collected: (when) => `Daraz-এর ক্যাম্পেইন পাতা থেকে নেওয়া (${when})।`,
+    error: 'ভাউচারের তালিকা আনা গেল না।',
+    none: 'এই মুহূর্তে Daraz-এর ক্যাম্পেইন পাতায় কোনো পাবলিক ভাউচার নেই। 11.11-এর মতো সেলে এগুলো একসাথে ফেরে।',
+    footnote: 'স্টোর ভাউচার, নতুন গ্রাহকের অফার আর Daraz Coins শুধু লগ-ইন করা Daraz অ্যাকাউন্টে দেখা যায়, তাই এখানে নেই।',
+  },
+  en: {
+    eyebrow: 'What the agent checks against',
+    title: 'Public Daraz vouchers right now',
+    collected: (when) => `Collected from Daraz campaign pages ${when}.`,
+    error: "Couldn't load the voucher list.",
+    none: "No public vouchers are live on Daraz's campaign pages at the moment. They return in bulk around sales like 11.11.",
+    footnote: "Store vouchers, new-user offers and Daraz Coins only show to a logged-in Daraz account, so they aren't here.",
+  },
+}
 
 function ago(iso) {
   if (!iso) return 'never'
@@ -23,21 +43,14 @@ function campaign(url) {
 // from Daraz's campaign pages (agent/vouchers.py) — product pages show none
 // to a logged-out visitor, so store and personal vouchers can't be listed.
 export default function VoucherBoard({ data, status }) {
+  const c = COPY[useLang().lang]
   return (
-    <section className="voucher-board" id="vouchers">
-      <div className="panel-head">
-        <div>
-          <p className="eyebrow">What the agent checks against</p>
-          <h2>Public Daraz vouchers right now</h2>
-        </div>
-        {data && <small className="match-note">Collected from Daraz campaign pages {ago(data.harvestedAt)}.</small>}
-      </div>
-      {status === 'error' && <p className="no-results">Couldn't load the voucher list.</p>}
-      {data && data.results.length === 0 && (
-        <p className="no-results">
-          No public vouchers are live on Daraz's campaign pages at the moment. They return in bulk around sales like 11.11.
-        </p>
-      )}
+    <section className="section" id="vouchers" aria-labelledby="vouchers-title">
+      <p className="eyebrow">{c.eyebrow}</p>
+      <h2 id="vouchers-title">{c.title}</h2>
+      {data && <p className="muted">{c.collected(ago(data.harvestedAt))}</p>}
+      {status === 'error' && <p className="empty">{c.error}</p>}
+      {data && data.results.length === 0 && <p className="empty">{c.none}</p>}
       {data && data.results.length > 0 && (
         <ul className="voucher-list">
           {data.results.map((v, i) => (
@@ -61,9 +74,7 @@ export default function VoucherBoard({ data, status }) {
           ))}
         </ul>
       )}
-      <p className="voucher-footnote">
-        Store vouchers, new-user offers and Daraz Coins only show to a logged-in Daraz account, so they aren't here.
-      </p>
+      <p className="voucher-footnote">{c.footnote}</p>
     </section>
   )
 }

@@ -159,7 +159,9 @@ export async function parseIntent(query: string, env: Env, context = ''): Promis
   // wrote: "Jedel KL69 61 Keys RGB Mechanical Keyboard" must not turn into a
   // feature hunt for "Jedel keyboard".
   const named = modelTokens(tokens(cleanSearchQuery(query))).length > 0
-  const mode = !named && (maxPrice || minPrice || mustHave.length) ? 'need' : 'product'
+  // ...and a kind of item on its own ("which keyboard is best" -> "keyboard")
+  // is a best-fit search, as in the product box.
+  const mode = !named && (maxPrice || minPrice || mustHave.length || !namesAProduct(searchQuery)) ? 'need' : 'product'
 
   if (mode === 'need' && productType) {
     // Search the kind of item; features are for ranking. "phone camera" finds
@@ -246,10 +248,29 @@ export function namesAProduct(name: string): boolean {
   return modelTokens(tokens(cleaned)).length > 0 || quantities(cleaned).size > 0 || cleaned.split(' ').filter(Boolean).length >= 4
 }
 
+/**
+ * The page's one search box takes a product name, a description or a
+ * question. A name is searched as typed; anything that reads like a
+ * description goes to the AI, as the needs box would: Bangla (the name
+ * search only reads a–z and 0–9), a question, a sentence that opens like one
+ * ("a good wireless mouse for office work"), or a budget ("monitor 30k").
+ * A model code always means a name.
+ */
+const BANGLA_RE = /[ঀ-৿]/
+const OPENS_LIKE_A_REQUEST_RE = /^(a|an|any|some|i|im|i'm|me|my|which|what|whats|what's|is|are|should|can|could|find|show|suggest|recommend|best|cheapest|cheap|good|looking|need|want|please)\b/i
+const BUDGET_RE = /\b(under|below|within|less than|upto|up to|around|max)\s*(tk\.?|৳)?\s*\d|\b\d+(\.\d+)?\s*(k|tk|taka|bdt)\b|৳\s*\d/i
+
+export function readsAsDescription(text: string): boolean {
+  if (BANGLA_RE.test(text)) return true
+  if (modelTokens(tokens(cleanSearchQuery(text))).length) return false
+  return /\?\s*$/.test(text) || OPENS_LIKE_A_REQUEST_RE.test(text.trim()) || BUDGET_RE.test(text)
+}
+
 export async function buildIntent(name: string, details: string, env: Env): Promise<Intent> {
   name = name.replace(/\s+/g, ' ').trim()
   details = details.replace(/\s+/g, ' ').trim()
   if (!name) return parseIntent(details, env)
+  if (!details && readsAsDescription(name)) return parseIntent(name, env)
 
   const typed = parseRules(name) // a budget typed into the name box still counts
   const wish = details ? await parseIntent(details, env, name) : null

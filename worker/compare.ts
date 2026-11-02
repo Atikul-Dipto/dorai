@@ -11,6 +11,7 @@
  */
 
 import { closestFirst, compareAcross, matchRows, recommendHere, relations, type Result, type StoreAnswer, UNBRANDED } from './agent.ts'
+import { CACHE_VERSION, readCache, writeCache } from './cache.ts'
 import * as cartup from './cartup.ts'
 import * as daraz from './daraz.ts'
 import * as othoba from './othoba.ts'
@@ -21,8 +22,6 @@ import * as store from './store.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
 
 const CACHE_SECONDS = 6 * 3600
-// Raised whenever matching changes, so cached answers from the old rules are dropped.
-const CACHE_VERSION = 8
 
 export interface ProductRef {
   site: Listing['site']
@@ -112,9 +111,8 @@ const product = (name: string): Intent => ({ rawQuery: name, mode: 'product', se
  */
 export async function compare(ref: ProductRef, env: Env, opts: { name?: string; now?: Date } = {}): Promise<Comparison | { error: string }> {
   const cacheKey = `https://dorai.cache/compare/v${CACHE_VERSION}/${ref.site}/${encodeURIComponent(ref.itemId)}`
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default
-  const hit = await cache?.match(cacheKey).catch(() => undefined)
-  if (hit) return { ...((await hit.json()) as Comparison), cached: true }
+  const hit = await readCache<Comparison>(cacheKey)
+  if (hit) return { ...hit, cached: true }
 
   const now = opts.now ?? new Date()
   const nowIso = now.toISOString()
@@ -164,7 +162,7 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   }
 
   // Price memory, vouchers, and every price seen written back, as the agent does.
-  const everything = unique([source, ...darazPool, ...cartupPool])
+  const everything = unique([source, ...darazPool, ...cartupPool, ...othobaPool])
   let history = new Map<string, HistoryMatch>()
   let vouchers: Voucher[] = []
   if (db) {
@@ -216,6 +214,11 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
     answerFor('othoba', 'Othoba', othobaPool, null),
   ]
   compareAcross(stores)
+  // The matching engine's verdict, kept: every offer of this product, on every store, is one product.
+  if (db) {
+    const offers = [source, ...stores.flatMap((s) => [s.recommended?.listing, ...s.matches.filter((m) => m.relation === 'same').map((m) => m.listing)])]
+    await store.linkProduct(db, offers.filter((l): l is Listing => Boolean(l)), nowIso).catch(() => null)
+  }
 
   const here = toResult(source)
   const elsewhere = stores
@@ -232,7 +235,7 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   }
   // A store that couldn't be checked is tried again next time, not remembered for 6 hours.
   if (!comparison.unreachable.length) {
-    await cache?.put(cacheKey, new Response(JSON.stringify(comparison), { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${CACHE_SECONDS}` } })).catch(() => undefined)
+    await writeCache(cacheKey, comparison, CACHE_SECONDS)
   }
   return comparison
 }

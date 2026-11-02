@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "node --test \"worker/*.test.ts\"",
-    "deploy": "vite build && npx wrangler pages deploy dist --project-name dorai-bd --branch main --commit-dirty=true"
+    "deploy": "vite build && npx wrangler pages deploy dist --project-name dorai-bd --branch main --commit-dirty=true",
+    "deploy:jobs": "npx wrangler deploy --config jobs/wrangler.toml"
   },
   "dependencies": {
     "react": "^19.2.8",

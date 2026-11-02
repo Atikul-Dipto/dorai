@@ -1,0 +1,20 @@
+# DorAI's scheduled jobs (jobs/index.ts): a cron-triggered Worker beside the
+# Pages site, on the same D1 database. No public URL; it only runs on the timer.
+# Deploy: npm run deploy:jobs (from the repo root). Secrets: see docs/OPERATIONS.md.
+name = "dorai-jobs"
+main = "index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = false
+preview_urls = false
+
+[triggers]
+crons = ["*/10 * * * *"]
+
+[[d1_databases]]
+binding = "PP_DB"
+database_name = "price-pulse"
+database_id = "d9bbf033-8bd7-4f43-b262-47205d06b485"
+
+[vars]
+# The push key pair's public half (the private half is the VAPID_PRIVATE_JWK secret).
+VAPID_PUBLIC_KEY = "BMcCb9DIDCDQnZTaHosDUGCKm3l1H7Tc8Uvm0gde1G3WD-Rhe7SCLIGxKXH8lZql8rr6lrs_-lSYB-Q27lQ0ml0"

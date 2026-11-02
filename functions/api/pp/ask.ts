@@ -9,12 +9,15 @@
  *   GET  ?q=... / POST { "query" } one-box form: the agent works out whether it's a name or a description
  */
 
-import { type AskInput, run } from '../../../worker/agent.ts'
+import { type Answer, type AskInput, run } from '../../../worker/agent.ts'
+import { readCache, searchKey, writeCache } from '../../../worker/cache.ts'
 import { json, preflight } from '../../../worker/http.ts'
 import { logAsk } from '../../../worker/store.ts'
 import type { Env } from '../../../worker/types.ts'
 
 type Ctx = { request: Request; env: Env; waitUntil(p: Promise<unknown>): void }
+
+const SEARCH_CACHE_SECONDS = 15 * 60
 
 const clean = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '')
 
@@ -33,7 +36,12 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
   const logged = input.query ?? [input.name, input.details].filter(Boolean).join(' — ')
   const askedAt = new Date().toISOString()
   try {
-    const result = await run(input, env)
+    // The same search within 15 minutes is answered from the cache; an answer
+    // where a store couldn't be reached isn't kept.
+    const key = await searchKey([input.name, input.details, input.query])
+    const hit = await readCache<Answer>(key)
+    const result = hit ? { ...hit, cached: true } : await run(input, env)
+    if (!hit && !result.stores.some((st) => st.note?.startsWith("Couldn't reach"))) waitUntil(writeCache(key, result, SEARCH_CACHE_SECONDS))
     // The cheapest of the stores' recommended options, for the record of how answers went.
     const picks = result.stores.map((st) => st.recommended).filter((r) => r !== null)
     const cheapest = picks.sort((a, b) => a.finalPrice - b.finalPrice)[0] ?? null
@@ -48,8 +56,8 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
           bestPrice: cheapest?.listing.price ?? null,
           bestFinal: cheapest?.finalPrice ?? null,
           voucherApplied: picks.some((r) => r.bestVoucher),
-          totalMs: result.timingsMs.total,
-          timings: result.timingsMs,
+          totalMs: hit ? Date.now() - Date.parse(askedAt) : result.timingsMs.total,
+          timings: hit ? { cached: 1 } : result.timingsMs,
           error: null,
         }).catch(() => {}),
       )

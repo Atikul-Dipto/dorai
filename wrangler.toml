@@ -16,3 +16,9 @@ migrations_dir = "worker/migrations"
 # past that) -- reads shopper requests for the agent.
 [ai]
 binding = "AI"
+
+# Public settings for the notification service (worker/notify.ts). Secrets
+# (VAPID_PRIVATE_JWK, RATE_SALT, TELEGRAM_*) are set with
+# `wrangler pages secret put`; see docs/OPERATIONS.md.
+[vars]
+VAPID_PUBLIC_KEY = "BMcCb9DIDCDQnZTaHosDUGCKm3l1H7Tc8Uvm0gde1G3WD-Rhe7SCLIGxKXH8lZql8rr6lrs_-lSYB-Q27lQ0ml0"

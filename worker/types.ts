@@ -77,6 +77,16 @@ export interface HistoryMatch {
 export interface Env {
   AI?: { run(model: string, input: unknown): Promise<{ response?: unknown }> }
   PP_DB?: D1Database
+  // Notification service (notify.ts). Push: a VAPID key pair (the private key
+  // as a JWK, a secret). Telegram: the bot's token, its @name and the
+  // webhook's shared secret, all set only once the bot exists.
+  VAPID_PUBLIC_KEY?: string
+  VAPID_PRIVATE_JWK?: string
+  TELEGRAM_BOT_TOKEN?: string
+  TELEGRAM_BOT_NAME?: string
+  TELEGRAM_WEBHOOK_SECRET?: string
+  // Salt for the hashed caller keys the rate limits count by.
+  RATE_SALT?: string
 }
 
 // Minimal D1 surface used here (Cloudflare's types aren't installed in this repo).

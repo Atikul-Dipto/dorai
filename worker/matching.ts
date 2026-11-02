@@ -76,7 +76,7 @@ export function relations(title: string, ref?: Listing | null): (l: Listing) => 
     const [first, last] = [hit.indexOf(true), hit.lastIndexOf(true)]
     return ws.some((w, i) => i > first && i < last && !hit[i] && !SALES_TALK.has(w))
   }
-  const relate = (name: string, earlier = false): Relation | null => {
+  const relate = (name: string, earlier = false, brand = ''): Relation | null => {
     // A combo or gift box isn't the product in it, or another size of it.
     if (isBundle(name) && !bundle) return null
     // Shares of each name's line words found in the other.
@@ -99,12 +99,13 @@ export function relations(title: string, ref?: Listing | null): (l: Listing) => 
     // Nazirshail Rice 5kg" isn't), or is held in it and covers at least half
     // of it ("Jordan Chest Bag" doesn't). A renamed listing's earlier name
     // has to hold it all: a generic old "Kodomo Baby Lotion Powder 180ml"
-    // doesn't make today's "(Extra Mild)" the Pink Hanabaki one. Held in it,
-    // the name still needs the title's first word, usually the brand: a
-    // plain "Mustard Oil 1 liter" isn't Radhuni's.
-    const identity = main
-      ? Math.max(ofTitle, ofName) >= 0.6
-      : ofTitle >= 0.8 || (!earlier && ofName >= 0.8 && ofTitle >= 0.5 && foundWords(lineWords.slice(0, 1), nameLine).length > 0)
+    // doesn't make today's "(Extra Mild)" the Pink Hanabaki one. Either way
+    // the name needs the title's first word, usually the brand: a plain
+    // "Mustard Oil 1 liter" isn't Radhuni's, and "Farmland Full Cream Milk
+    // Powder 1kg" (5 of 6 words) isn't Starship's. Stores that keep the
+    // brand apart from the name (Cartup) have it in the brand field.
+    const hasFirst = !lineWords.length || foundWords(lineWords.slice(0, 1), `${brand} ${nameLine}`).length > 0
+    const identity = main ? Math.max(ofTitle, ofName) >= 0.6 : hasFirst && (ofTitle >= 0.8 || (!earlier && ofName >= 0.8 && ofTitle >= 0.5))
     if (!identity) return close
     const s = storageOf(name)
     const differs =
@@ -128,7 +129,7 @@ export function relations(title: string, ref?: Listing | null): (l: Listing) => 
   return (l) => {
     if (!l.inStock || isAccessory(l, titleTokens)) return null
     // A renamed Cartup listing is what it is under either of its names.
-    const found = [relate(l.name), l.alsoNamed ? relate(l.alsoNamed, true) : null]
+    const found = [relate(l.name, false, l.brand), l.alsoNamed ? relate(l.alsoNamed, true, l.brand) : null]
     const byTitle = found.sort((a, b) => order.indexOf(a) - order.indexOf(b))[0]
     if (!photo || l.itemId === ref?.itemId) return byTitle
     // The same photo file: Cartup's "Squares Led Digital Sports Watch" is

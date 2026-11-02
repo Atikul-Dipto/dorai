@@ -705,6 +705,17 @@ test('unbranded watches: the same photo file is the same product, a look-alike t
 // From a search on 2026-11-03: the kettle was on Cartup under Daraz's exact
 // title, but both stores call it "No Brand" and each seller uploaded its own
 // photo, so it showed as only a close match.
+// From a search on 2026-11-03: Cartup's "best offer" for Starship milk powder
+// was Farmland's, and Othoba's PRAN's — 5 of the title's 6 words, brand aside.
+test('without a model code, another brand of the same kind is never the same product', () => {
+  const relate = relations('Starship Full Cream Milk Powder – 1kg')
+  assert.equal(relate(onCartup('Farmland Full Cream Milk Powder – 1kg', 790, { brand: 'Farmland' })), 'close')
+  assert.equal(relate(onCartup('PRAN Full Cream Milk Powder 1kg', 950)), 'close')
+  // The brand can sit in the store's brand field rather than the name.
+  assert.equal(relate(onCartup('Full Cream Milk Powder - 1kg', 760, { brand: 'Starship' })), 'same')
+  assert.equal(relate(onCartup('Starship Full Cream Milk Powder - 500 gm', 370)), 'variant')
+})
+
 test('an unbranded product copied word for word to another store is the same product', () => {
   const title = 'Prestige Electric Kettle - 2L - Silver and Black - Elevate Your Tea-Making Experience'
   const daraz = listing(title, 796, { brand: 'No Brand', image: 'https://static-01.daraz.com.bd/p/efa7cc4686a512f0a8fbb9575cb0730e.png' })

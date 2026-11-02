@@ -54,8 +54,9 @@ export const onRequestPost = async (ctx: Ctx) => {
   if (!admin(ctx)) return json(ctx.request, { error: 'Not allowed.' }, 403)
   const body = (await ctx.request.json().catch(() => null)) as { id?: unknown; decision?: unknown } | null
   if (typeof body?.id !== 'number' || (body.decision !== 'same' && body.decision !== 'different')) return json(ctx.request, { error: 'Send { id, decision: "same" | "different" }.' }, 400)
-  const ok = await decideReview(db, body.id, body.decision === 'same', new Date().toISOString())
-  return ok ? json(ctx.request, { decided: body.id }) : json(ctx.request, { error: 'That review is already decided, or there is no such review.' }, 404)
+  // `decided` counts this review and the same-title ones it settled with it.
+  const decided = await decideReview(db, body.id, body.decision === 'same', new Date().toISOString())
+  return decided ? json(ctx.request, { decided }) : json(ctx.request, { error: 'That review is already decided, or there is no such review.' }, 404)
 }
 
 export const onRequestOptions = preflight

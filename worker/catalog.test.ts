@@ -21,6 +21,10 @@ test("a title's model code: its first real code, never a spec, a size or a multi
     ['New 3 in 1 Bluetooth Gaming Keyboard Mouse Converter', null],
     ['Samyang Hot Chicken Flavor Ramen 3x Spicy Noodles - 140g', null],
     ['Binni Rice (White) 1 kg pack (100% Mix free)', null],
+    // A frequency, a cube's size and a style were each read as a model and made strangers "the same model".
+    ['HP W10 Dual Mode Wireless Bluetooth Mouse Rechargeable RGB Light 2.4GHz', 'hpw10'],
+    ['High Speed Magic Rubik Cube Puzzle 3X3', null],
+    ["Y2k Summer Women's Tee Streetwear Casual Fashion Vintage Grunge Letter", null],
   ]
   for (const [name, want] of cases) assert.equal(catalogModel(name), want, name)
 })

@@ -86,10 +86,11 @@ export function isBundle(name: string): boolean {
   return new Set(units).size < units.length
 }
 
-// Spec values, not model names: "8gb" and "5000mah" describe a phone, "61 keys" a keyboard.
+// Spec values, not model names: "8gb" and "5000mah" describe a phone, "61 keys" a keyboard,
+// "2.4GHz" a wireless mouse (its "4ghz" was the HP W10's model code).
 /** "5G" on a phone is the network, not 5 grams ("best 5G phone" lost its 5G as a weight). */
 export const isNetworkGen = (t: string) => /^[3-6]g$/i.test(t.trim())
-const SPEC_RE = /^\d+(?:gb|tb|mb|mah|hz|w|mp|inch|in|v|k|keys?|m|cm|mm|ft|g)$/
+const SPEC_RE = /^\d+(?:gb|tb|mb|mah|hz|khz|mhz|ghz|w|wh|mwh|kw|kwh|mp|inch|in|v|k|keys?|m|cm|mm|ft|g|dpi|rpm|fps|db|lm)$/
 const SPEC_WORDS = new Set(['gb', 'tb', 'mb', 'mah', 'hz', 'w', 'mp', 'inch', 'key', 'keys', 'pcs', 'pc', 'months', 'month', 'years', 'year'])
 const VARIANT_WORDS = new Set(['pro', 'plus', 'max', 'ultra', 'lite', 'mini', 'fe', 'neo', 'edge', 'prime'])
 /**

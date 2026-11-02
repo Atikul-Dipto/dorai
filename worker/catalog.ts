@@ -34,6 +34,9 @@ export interface Specs {
   network: string | null // "5g"
   colour: string | null // shown, never a conflict: colours of one product are one product to compare
   bundle: boolean
+  dims: string[] // "3x3": a cube's, a frame's
+  times: string | null // "3x": Samyang's 2x and 3x Spicy, a remedy's potency
+  volume: string | null // "4" in "Vol. 4": one book of a series
 }
 
 export interface Parsed {
@@ -67,10 +70,13 @@ const plain = (s: string) => cleanText(s).normalize('NFD').replace(/[̀-ͯ]/g, '
  * Vivobook Go 15 L1504FA…"), else a code made of a short prefix and a number
  * ("WH-1000XM5"), else a word and a number of 2+ digits ("iPhone 15", "Nokia
  * 215") — "Battery 4", "Powder 0+" and "pack (100%" are no models, nor are
- * multipliers and dimensions ("2x", "3D", "4K"). The live matcher picks the
+ * multipliers, dimensions and styles ("2x", "3D", "4K", a cube's "3x3", "Y2K"
+ * tees: every 3x3 cube had the same "model"). The live matcher picks the
  * longest code instead, which can be a spec ("lightweight44").
  */
 const NOT_A_LINE = new Set(['pack', 'set', 'size', 'version', 'combo', 'day', 'days', 'year', 'years', 'month', 'hour', 'hours', 'piece', 'pieces', 'pcs', 'in', 'of'])
+const NOT_A_MODEL = new Set(['y2k', 'mp3', 'mp4', 'mp5'])
+const DIMENSION = /^\d+x\d+(x\d+)?$/
 export function catalogModel(name: string): string | null {
   const ts = tokens(plain(name))
   const codes = modelTokens(ts)
@@ -79,7 +85,7 @@ export function catalogModel(name: string): string | null {
     return !ts.includes(c) && !NOT_A_LINE.has(word) && !GENERIC_FIRST.has(word) && !STOP.has(word)
   }
   return (
-    codes.find((c) => ts.includes(c) && /[a-z]/.test(c) && /\d/.test(c) && c.length >= 3 && !/^\d+[xdkgp]$/.test(c)) ??
+    codes.find((c) => ts.includes(c) && /[a-z]/.test(c) && /\d/.test(c) && c.length >= 3 && !/^\d+[xdkgp]$/.test(c) && !DIMENSION.test(c) && !NOT_A_MODEL.has(c)) ??
     codes.find((c) => glued(c) && /^[a-z]{1,3}\d+([a-z]|\d{2})/.test(c)) ??
     codes.find((c) => glued(c) && /^[a-z]{2,}\d{2,}$/.test(c)) ??
     null
@@ -112,6 +118,9 @@ export function normalizeTitle(name: string): string {
 
 // ---- 3. Extract specifications ----
 
+const TIMES = /^\d+x$/
+const VOLUME_RE = /\b(?:vol(?:ume)?|part|book|season|chapter|issue)\s*[.:#-]?\s*(\d+)\b/i
+
 export function extractSpecs(name: string, model: string | null): Specs {
   const title = normalizeTitle(name)
   const ts = title.split(' ')
@@ -123,6 +132,9 @@ export function extractSpecs(name: string, model: string | null): Specs {
     network: ts.find((t) => isNetworkGen(t)) ?? null,
     colour: ts.find((t) => COLOURS.has(t)) ?? null,
     bundle: isBundle(name),
+    dims: [...new Set(ts.filter((t) => DIMENSION.test(t)))].sort(),
+    times: ts.find((t) => TIMES.test(t)) ?? null,
+    volume: VOLUME_RE.exec(plain(name))?.[1].replace(/^0+(?=\d)/, '') ?? null,
   }
 }
 
@@ -131,16 +143,19 @@ export function extractSpecs(name: string, model: string | null): Specs {
 /** Brand + model + specs; without a model code, brand + identity words + specs. Equal fingerprints describe one product. */
 export function fingerprint(p: Omit<Parsed, 'fingerprint'>): string {
   const s = p.specs
-  const specs = [s.size.join('+'), s.storage ?? '', s.variant, s.network ?? '', s.bundle ? 'bundle' : ''].join('|')
-  return p.model ? `m|${p.brand ?? ''}|${p.model}|${specs}` : `w|${p.brand ?? ''}|${[...new Set(p.words)].sort().slice(0, 8).join('+')}|${specs}`
+  const specs = [s.size.join('+'), s.storage ?? '', s.variant, s.network ?? '', s.bundle ? 'bundle' : '', s.dims.join('+'), s.times ?? '', s.volume ?? ''].join('|')
+  return p.model ? `m|${p.brand ?? ''}|${p.model}|${specs}` : `w|${p.brand ?? ''}|${[...new Set(p.words)].sort().join('+')}|${specs}`
 }
+
+/** Whether a fingerprint names a brand or a model code: then equal ones are one product. "Bluetooth music receiver" twice may be two. */
+const telling = (fp: string) => fp.startsWith('m|') || fp.split('|')[1] !== ''
 
 /** Stages 1–4 for one listing. */
 export function parseListing(name: string, storeBrand: string | null, image: string | null): Parsed {
   const { brand, brandFrom, model } = extractBrandModel(name, storeBrand)
   const title = normalizeTitle(name)
   const specs = extractSpecs(name, model)
-  const skip = new Set([...(brand?.split(' ') ?? []), ...specs.size, ...(specs.network ? [specs.network] : []), ...COLOURS])
+  const skip = new Set([...(brand?.split(' ') ?? []), ...specs.size, ...specs.dims, ...(specs.times ? [specs.times] : []), ...(specs.network ? [specs.network] : []), ...COLOURS])
   const words = title.split(' ').filter((t) => t && !skip.has(t) && !(model && model.includes(t) && /\d/.test(t)) && t !== model)
   const parsed = { brand, brandFrom, model, title, words, specs, photo: photoFile(image) }
   return { ...parsed, fingerprint: fingerprint(parsed) }
@@ -164,8 +179,8 @@ const jaccard = (a: string[], b: string[]) => {
 /**
  * How sure the engine is that listing `a` is product `b`, from 0 to 1, with
  * the reasons. A hard conflict (another brand, model, size, storage,
- * variant, network, or a bundle against a single item) is 0: those are other
- * products, however alike the words.
+ * variant, network, dimensions, strength or volume, or a bundle against a
+ * single item) is 0: those are other products, however alike the words.
  */
 export function confidence(a: Parsed, b: Parsed, samePhoto = false): { score: number; reasons: string[] } {
   const reasons: string[] = []
@@ -183,6 +198,9 @@ export function confidence(a: Parsed, b: Parsed, samePhoto = false): { score: nu
   if (x.variant !== y.variant && (x.variant || y.variant)) return { score: 0, reasons: [`different variant (${x.variant || 'none'} / ${y.variant || 'none'})`] }
   if (x.network && y.network && x.network !== y.network) return { score: 0, reasons: [`different network (${x.network} / ${y.network})`] }
   if (x.bundle !== y.bundle) return { score: 0, reasons: ['one is a bundle'] }
+  if (x.dims.length && y.dims.length && x.dims.join('+') !== y.dims.join('+')) return { score: 0, reasons: [`different dimensions (${x.dims.join(', ')} / ${y.dims.join(', ')})`] }
+  if (x.times && y.times && x.times !== y.times) return { score: 0, reasons: [`different strength (${x.times} / ${y.times})`] }
+  if (x.volume && y.volume && x.volume !== y.volume) return { score: 0, reasons: [`different volume (${x.volume} / ${y.volume})`] }
 
   let score = 0
   const add = (points: number, reason: string) => {
@@ -197,7 +215,7 @@ export function confidence(a: Parsed, b: Parsed, samePhoto = false): { score: nu
   else if (model === 'held') add(0.3, 'model code in the other title')
   const overlap = jaccard(a.words, b.words)
   add(overlap * (model === 'same' ? 0.2 : 0.45), `${Math.round(overlap * 100)}% of the words in common`)
-  if ((x.size.length && y.size.length) || (x.storage !== null && y.storage !== null)) add(0.1, 'same size')
+  if ((x.size.length && y.size.length) || (x.storage !== null && y.storage !== null) || (x.dims.length && y.dims.length)) add(0.1, 'same size')
   if (a.title === b.title && aTokens.length >= 5) add(0.25, 'identical title')
   if (samePhoto) add(0.45, 'same photo file')
   return { score: Math.round(Math.min(1, score) * 100) / 100, reasons }
@@ -250,24 +268,38 @@ async function createProduct(db: D1Database, l: StoredListing, p: Parsed, now: s
   return row!.id
 }
 
-export type Outcome = 'new' | 'auto' | 'review'
+export type Outcome = 'new' | 'auto' | 'review' | 'manual'
 
 /** One listing through the whole pipeline. */
 export async function matchListing(db: D1Database, l: StoredListing, now: string): Promise<{ outcome: Outcome; productId: number | null; score: number | null }> {
   const p = parseListing(l.name, l.brand, l.image)
-  const rejected = new Set(
-    (await db.prepare(`SELECT product_id AS id FROM match_reviews WHERE item_id = ? AND status = 'rejected'`).bind(l.item_id).all<{ id: number }>()).results.map((r) => r.id),
-  )
+  const mark = (status: Outcome, productId: number | null, score: number | null) =>
+    db
+      .prepare(`UPDATE listings SET product_id = ?, match_status = ?, match_score = ?, fingerprint = ?, matched_at = ? WHERE item_id = ?`)
+      .bind(productId, status, score, p.fingerprint, now, l.item_id)
+  // A person's decisions stand: on this listing, and on listings with the same telling fingerprint.
+  const decided = (
+    await db
+      .prepare(
+        `SELECT r.product_id AS id, r.status, r.item_id = ?1 AS own FROM match_reviews r JOIN listings l ON l.item_id = r.item_id
+          WHERE r.status IN ('approved', 'rejected') AND (r.item_id = ?1 OR (?2 = 1 AND l.fingerprint = ?3))`,
+      )
+      .bind(l.item_id, telling(p.fingerprint) ? 1 : 0, p.fingerprint)
+      .all<{ id: number; status: string; own: number }>()
+  ).results
+  const rejected = new Set(decided.filter((d) => d.status === 'rejected').map((d) => d.id))
+  const twin = decided.find((d) => d.status === 'approved' && !d.own && !rejected.has(d.id))
+  if (twin) {
+    // A person matched a listing with this very title: the same product.
+    await db.batch([mark('manual', twin.id, null), db.prepare(`UPDATE products SET updated_at = ? WHERE id = ?`).bind(now, twin.id)])
+    return { outcome: 'manual', productId: twin.id, score: null }
+  }
   const scored = (await candidates(db, p, l.item_id))
     .filter((c) => !rejected.has(c.row.id))
     .map((c) => ({ ...c, ...confidence(p, parseListing(c.row.name, c.row.brand, c.row.image), c.samePhoto) }))
     .sort((a, b) => b.score - a.score)
   const best = scored[0]
   const level = best ? levelOf(best.score) : 'none'
-  const mark = (status: Outcome, productId: number | null, score: number | null) =>
-    db
-      .prepare(`UPDATE listings SET product_id = ?, match_status = ?, match_score = ?, fingerprint = ?, matched_at = ? WHERE item_id = ?`)
-      .bind(productId, status, score, p.fingerprint, now, l.item_id)
 
   if (level === 'none') {
     // Existing product match? No: a new canonical product.
@@ -292,7 +324,7 @@ export async function matchListing(db: D1Database, l: StoredListing, now: string
 
 /** The newest listings not processed yet, one by one (each may create a product the next one matches). */
 export async function matchNewListings(db: D1Database, now: string, limit: number): Promise<Record<Outcome, number>> {
-  const done: Record<Outcome, number> = { new: 0, auto: 0, review: 0 }
+  const done: Record<Outcome, number> = { new: 0, auto: 0, review: 0, manual: 0 }
   const { results } = await db
     .prepare(`SELECT item_id, site, name, brand, image FROM listings WHERE match_status IS NULL ORDER BY last_seen DESC LIMIT ?`)
     .bind(limit)
@@ -302,18 +334,36 @@ export async function matchNewListings(db: D1Database, now: string, limit: numbe
 }
 
 /**
- * A person's decision on a review. Same product: the listing is linked.
- * Different: the pair is remembered, and the listing goes through the
- * pipeline again without that product (another candidate, or a new product).
+ * A person's decision on a review, and on the other pending reviews of that
+ * product for listings with the same telling fingerprint (one title copied
+ * by five sellers is one decision). Same product: the listings are linked.
+ * Different: the pairs are remembered, and the listings go through the
+ * pipeline again without that product (another candidate, or a new
+ * product). Returns how many reviews it decided.
  */
-export async function decideReview(db: D1Database, id: number, same: boolean, now: string): Promise<boolean> {
-  const review = await db.prepare(`SELECT item_id, product_id, score FROM match_reviews WHERE id = ? AND status = 'pending'`).bind(id).first<{ item_id: string; product_id: number; score: number }>()
-  if (!review) return false
-  await db.batch([
-    db.prepare(`UPDATE match_reviews SET status = ?, decided_at = ? WHERE id = ?`).bind(same ? 'approved' : 'rejected', now, id),
-    same
-      ? db.prepare(`UPDATE listings SET product_id = ?, match_status = 'manual', matched_at = ? WHERE item_id = ?`).bind(review.product_id, now, review.item_id)
-      : db.prepare(`UPDATE listings SET product_id = NULL, match_status = NULL WHERE item_id = ?`).bind(review.item_id),
-  ])
-  return true
+export async function decideReview(db: D1Database, id: number, same: boolean, now: string): Promise<number> {
+  const review = await db
+    .prepare(`SELECT r.item_id, r.product_id, l.fingerprint FROM match_reviews r JOIN listings l ON l.item_id = r.item_id WHERE r.id = ? AND r.status = 'pending'`)
+    .bind(id)
+    .first<{ item_id: string; product_id: number; fingerprint: string | null }>()
+  if (!review) return 0
+  const twins =
+    review.fingerprint && telling(review.fingerprint)
+      ? (
+          await db
+            .prepare(`SELECT r.id, r.item_id FROM match_reviews r JOIN listings l ON l.item_id = r.item_id WHERE r.status = 'pending' AND r.product_id = ? AND r.id != ? AND l.fingerprint = ?`)
+            .bind(review.product_id, id, review.fingerprint)
+            .all<{ id: number; item_id: string }>()
+        ).results
+      : []
+  const all = [{ id, item_id: review.item_id }, ...twins]
+  await db.batch(
+    all.flatMap((r) => [
+      db.prepare(`UPDATE match_reviews SET status = ?, decided_at = ? WHERE id = ?`).bind(same ? 'approved' : 'rejected', now, r.id),
+      same
+        ? db.prepare(`UPDATE listings SET product_id = ?, match_status = 'manual', matched_at = ? WHERE item_id = ?`).bind(review.product_id, now, r.item_id)
+        : db.prepare(`UPDATE listings SET product_id = NULL, match_status = NULL WHERE item_id = ?`).bind(r.item_id),
+    ]),
+  )
+  return all.length
 }

@@ -85,6 +85,9 @@ test('the matching pipeline: confidence, and the conflicts that make it zero', (
   assert.match(confidence(p('Farmland Full Cream Milk Powder – 1kg', 'Farmland'), starship).reasons[0], /different brand/)
   assert.match(confidence(p('Starship Full Cream Milk Powder - 500gm', 'Starship'), starship).reasons[0], /different size/)
   assert.match(confidence(p('Samsung Galaxy A36 5G 8/128GB', 'Samsung'), p('Samsung Galaxy A36 5G 8/256GB', 'Samsung')).reasons[0], /different storage/)
+  assert.match(confidence(p('Samyang 2x Spicy Ramen 140gm (Single Pack) Korea'), p('Samyang 3x Spicy Ramen - 140g Single Pack Korea')).reasons[0], /different strength/)
+  assert.match(confidence(p("Hell's Paradise: Jigokuraku, Vol. 4"), p("Hell's Paradise: Jigokuraku, Vol. 2")).reasons[0], /different volume/)
+  assert.match(confidence(p('Rubik Magic Cube 3x3'), p('Rubik Magic Cube 4x4')).reasons[0], /different dimensions/)
   // Alike, not identical: a person decides.
   assert.ok(['medium', 'low'].includes(levelOf(confidence(p('Starship Instant Full Cream Milk Powder 1kg'), starship).score)))
   // Two No Brand watches that differ in one word: unsure on words, sure with the same photo file.
@@ -104,6 +107,7 @@ test('the matching pipeline over the database: link, new product, review, and th
     [offer('cartup:3', 'cartup', 'Farmland Full Cream Milk Powder – 1kg', 'Farmland'), 'new'],
     [offer('d4', 'daraz', 'Starship Full Cream Milk Powder - 500gm', 'Starship'), 'new'],
     [offer('othoba:5', 'othoba', 'Starship Instant Full Cream Milk Powder 1kg', ''), 'review'],
+    [offer('cartup:6', 'cartup', 'Starship Instant Full Cream Milk Powder 1kg', ''), 'review'],
   ]
   for (const [i, [l, expected]] of steps.entries()) {
     await recordListings(db, [l], at(i))
@@ -111,23 +115,28 @@ test('the matching pipeline over the database: link, new product, review, and th
     assert.equal((await matchListing(db, { ...stored }, at(i))).outcome, expected, l.name)
   }
   const productOf = (id: string) => (raw.prepare('SELECT product_id FROM listings WHERE item_id = ?').get(id) as { product_id: number | null }).product_id
+  const reviewOf = (id: string) => raw.prepare('SELECT id, product_id FROM match_reviews WHERE item_id = ? ORDER BY id DESC').get(id) as { id: number; product_id: number }
   assert.equal(productOf('cartup:2'), productOf('d1'))
   assert.equal(productOf('othoba:5'), null)
 
-  // "Same product": linked by hand.
-  const review = raw.prepare("SELECT id, product_id FROM match_reviews WHERE item_id = 'othoba:5'").get() as { id: number; product_id: number }
-  assert.equal(review.product_id, productOf('d1'))
-  assert.equal(await decideReview(db, review.id, true, at(6)), true)
+  // "Same product": linked by hand, with the same title from another store in the same decision.
+  assert.equal(reviewOf('othoba:5').product_id, productOf('d1'))
+  assert.equal(await decideReview(db, reviewOf('othoba:5').id, true, at(7)), 2)
   assert.equal(productOf('othoba:5'), productOf('d1'))
-  assert.equal(await decideReview(db, review.id, true, at(6)), false)
+  assert.equal(productOf('cartup:6'), productOf('d1'))
+  assert.equal(await decideReview(db, reviewOf('othoba:5').id, true, at(7)), 0)
+  // ...and that title arriving later follows the decision.
+  await recordListings(db, [offer('othoba:7', 'othoba', 'Starship Instant Full Cream Milk Powder 1kg', '')], at(8))
+  assert.deepEqual(await matchNewListings(db, at(8), 10), { new: 0, auto: 0, review: 0, manual: 1 })
+  assert.equal(productOf('othoba:7'), productOf('d1'))
 
-  // "Different": back through the pipeline without that product, so a new one.
-  await recordListings(db, [offer('othoba:6', 'othoba', 'Starship Instant Full Cream Milk Powder 1kg', '')], at(7))
-  assert.deepEqual(await matchNewListings(db, at(7), 10), { new: 0, auto: 0, review: 1 })
-  const second = raw.prepare("SELECT id FROM match_reviews WHERE item_id = 'othoba:6'").get() as { id: number }
-  await decideReview(db, second.id, false, at(8))
-  assert.deepEqual(await matchNewListings(db, at(8), 10), { new: 1, auto: 0, review: 0 })
-  assert.notEqual(productOf('othoba:6'), productOf('d1'))
+  // "Different": back through the pipeline without that product, so a new one, which the twin then joins.
+  await recordListings(db, [offer('d8', 'daraz', 'Starship Full Cream Milk Powder Pouch 1kg', ''), offer('d9', 'daraz', 'Starship Full Cream Milk Powder Pouch 1kg', '')], at(9))
+  assert.deepEqual(await matchNewListings(db, at(9), 10), { new: 0, auto: 0, review: 2, manual: 0 })
+  assert.equal(await decideReview(db, reviewOf('d8').id, false, at(9)), 2)
+  assert.deepEqual(await matchNewListings(db, at(9), 10), { new: 1, auto: 1, review: 0, manual: 0 })
+  assert.equal(productOf('d8'), productOf('d9'))
+  assert.notEqual(productOf('d8'), productOf('d1'))
 
   // A renamed listing is matched again.
   await recordListings(db, [offer('cartup:3', 'cartup', 'Farmland Full Cream Milk Powder 1kg Tin', 'Farmland')], at(9))

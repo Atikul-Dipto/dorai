@@ -93,7 +93,7 @@ export async function runJobs(env: Env, now = new Date()): Promise<{ checked: nu
   // The catalogue catches up a batch at a time; a failure here never costs the price checks above.
   try {
     const m = await matchNewListings(db, iso, MATCHES_PER_RUN)
-    done.matched = m.new + m.auto + m.review
+    done.matched = m.new + m.auto + m.review + m.manual
   } catch {
     // tried again next run
   }

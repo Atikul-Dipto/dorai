@@ -48,8 +48,10 @@ Open https://dorai-bd.pages.dev/review and enter the `ADMIN_TOKEN` (in
 `.dev.vars`; kept in that browser only). Each card is a listing the
 matching engine scored 0.40–0.79 against its best candidate product, with
 the reasons. "Same product" links it; "Different" sends it through the
-engine again without that product. The page's top line shows how the
-catalogue stands (matched automatically, by you, new products, waiting).
+engine again without that product. A decision also settles the cards of the
+same title from other sellers (the page reloads), and that title arriving
+later follows it. The page's top line shows how the catalogue stands
+(matched automatically, by you, new products, waiting).
 
 ## Weekly upkeep (on this PC)
 

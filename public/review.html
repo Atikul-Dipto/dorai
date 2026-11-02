@@ -96,9 +96,11 @@
       if (!b) return
       const section = b.closest('.review')
       section.querySelectorAll('button').forEach((x) => (x.disabled = true))
-      await fetch('/api/pp/review', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ id: Number(section.dataset.id), decision: b.dataset.decision }) })
+      const r = await fetch('/api/pp/review', { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ id: Number(section.dataset.id), decision: b.dataset.decision }) })
+      const { decided = 1 } = await r.json().catch(() => ({}))
       section.remove()
-      if (!document.querySelector('.review')) load()
+      // One decision settles the same title from other sellers: their cards go too.
+      if (decided > 1 || !document.querySelector('.review')) load()
     })
     load()
   </script>

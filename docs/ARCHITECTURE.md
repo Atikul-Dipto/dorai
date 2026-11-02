@@ -117,11 +117,11 @@ flowchart TB
 |---|---|
 | Brand | The store's brand field, unless it says "No Brand"; else the title's first word, unless it's a generic word ("Wireless", "Original", "Mobile"…). Accents are dropped ("Nestlé" → nestle). |
 | Model | The first real letters-and-digits code ("RB40", "L1504FA", "EQ34"); else a short prefix code ("WH-1000XM5"); else a word with a 2+ digit number ("iPhone 15", "Nokia 215"). Never a multiplier, size or dimension ("2x", "3D", "Powder 0+"). |
-| Normalized title | Lower case, no punctuation, no filler or sales talk, amounts in one spelling ("1 Kg" = "1kg"). |
+| Normalized title | Lower case, no punctuation, no filler or sales talk, amounts in one unit per kind ("1 Kg" = "1000gm" = 1000g; 1 L = 1000ml). |
 | Specifications | Sizes and pack counts, storage (GB), variant words (Pro/Plus/Max…), network (4G/5G), colour (shown, never a conflict), bundle. |
 | Fingerprint | `m|brand|model|specs` with a model code, `w|brand|identity words|specs` without. Equal fingerprints describe one product. |
 | Candidates | Products with a listing of the same fingerprint or photo file, the same model code, or the same brand and one of the three longest identity words. Products a person rejected for this listing are left out. |
-| Confidence | A different brand, model, size, storage, variant or network, or a bundle against a single item, scores 0. Otherwise: same brand 0.30 (unknown 0.10), same model 0.35 (code in the other title 0.25), shared identity words up to 0.35 (0.20 with a model), stated size or storage agreeing 0.10, identical title of 5+ words 0.25, same photo file 0.45; at most 1. |
+| Confidence | A different brand, model, size, storage, variant or network, or a bundle against a single item, scores 0. Otherwise: same brand 0.30 (unknown 0.10), same model 0.50 (code in the other title 0.30), shared identity words up to 0.45 (0.20 with a model), stated size or storage agreeing 0.10, identical title of 5+ words 0.25, same photo file 0.45; at most 1. |
 | Levels | High ≥ 0.80 links automatically. Medium ≥ 0.60 and low ≥ 0.40 wait for a person at `/review` (admin token); the listing stays unlinked meanwhile. Below 0.40 there's no existing match: a new canonical product. |
 | Review | "Same product" links it (`manual`). "Different" remembers the pair and sends the listing through again without that product. |
 

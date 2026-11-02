@@ -15,7 +15,7 @@
 
 import { COLOURS, photoFile, SALES_TALK, STOP, UNBRANDED } from './matching.ts'
 import { cleanText } from './normalize.ts'
-import { isBundle, isNetworkGen, modelTokens, QUANTITY_RE, storageOf, tokens, UNIT_ALIASES, variantsOf } from './ranking.ts'
+import { amountOf, isBundle, isNetworkGen, modelTokens, QUANTITY_RE, storageOf, tokens, variantsOf } from './ranking.ts'
 import type { D1Database } from './types.ts'
 
 /** A listing as the catalogue reads it from D1 `listings`. */
@@ -100,11 +100,11 @@ export function extractBrandModel(name: string, storeBrand: string | null): Pick
 
 // ---- 2. Normalize the product title ----
 
-/** One spelling of a title: lower case, no punctuation, amounts written alike ("1 Kg", "1kg" → "1kg"), no filler. */
+/** One spelling of a title: lower case, no punctuation, amounts in one unit ("1 Kg", "1000gm" → "1000g"), no filler. */
 export function normalizeTitle(name: string): string {
   const text = plain(name)
     .toLowerCase()
-    .replace(new RegExp(QUANTITY_RE.source, 'gi'), (_, n: string, u: string) => ` ${parseFloat(n)}${UNIT_ALIASES[u.toLowerCase()] ?? u.toLowerCase()} `)
+    .replace(new RegExp(QUANTITY_RE.source, 'gi'), (_, n: string, u: string) => ` ${amountOf(n, u)} `)
   return tokens(text)
     .filter((t) => !STOP.has(t) && !SALES_TALK.has(t))
     .join(' ')
@@ -191,10 +191,12 @@ export function confidence(a: Parsed, b: Parsed, samePhoto = false): { score: nu
   }
   if (brand === 'same') add(0.3, 'same brand')
   else add(0.1, 'brand unknown on one side')
-  if (model === 'same') add(0.35, `same model (${a.model})`)
-  else if (model === 'held') add(0.25, 'model code in the other title')
+  // The same brand and model code, with no spec in conflict, is the product (0.80): "AWEI T50 TWS…
+  // Docking Station" is the Awei T50. Without a code, the same brand, all the same words and size is.
+  if (model === 'same') add(0.5, `same model (${a.model})`)
+  else if (model === 'held') add(0.3, 'model code in the other title')
   const overlap = jaccard(a.words, b.words)
-  add(overlap * (model === 'same' ? 0.2 : 0.35), `${Math.round(overlap * 100)}% of the words in common`)
+  add(overlap * (model === 'same' ? 0.2 : 0.45), `${Math.round(overlap * 100)}% of the words in common`)
   if ((x.size.length && y.size.length) || (x.storage !== null && y.storage !== null)) add(0.1, 'same size')
   if (a.title === b.title && aTokens.length >= 5) add(0.25, 'identical title')
   if (samePhoto) add(0.45, 'same photo file')

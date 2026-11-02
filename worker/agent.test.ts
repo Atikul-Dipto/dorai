@@ -108,7 +108,9 @@ test('need mode prefers a good fit near the budget', () => {
 
 test('quantity normalization', () => {
   assert.deepEqual([...quantities('Rice 5 KG')], [...quantities('rice 5kg')])
-  assert.deepEqual([...quantities('Oil 1 Litre')], ['1l'])
+  assert.deepEqual([...quantities('Oil 1 Litre')], ['1000ml'])
+  // One unit per kind: the same packet written two ways.
+  assert.deepEqual([...quantities('Marks Full Cream Milk Powder, 1 kg pack')], [...quantities('Marks Instant Full Cream Milk Powder 1000gm')])
 })
 
 // The case that prompted the exact-first answer: Daraz's own listing names it

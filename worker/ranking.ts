@@ -33,13 +33,25 @@ export const UNIT_ALIASES: Record<string, string> = { gm: 'g', gram: 'g', grams:
 export const tokens = (text: string): string[] => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
 export const compact = (text: string) => tokens(text).join('')
 
-/** {"5kg"} from "Miniket Rice 5 KG" — normalized so spacing/case/alias don't matter. */
+const IN_BASE_UNIT: Record<string, [number, string]> = { kg: [1000, 'g'], l: [1000, 'ml'] }
+
+/**
+ * An amount in one unit per kind: "5 KG" → "5000g", "1 Litre" → "1000ml",
+ * "500gm" → "500g". Sellers write the same packet as "1kg" and "1000gm"
+ * ("Marks Full Cream Milk Powder 1 kg" / "…1000gm"), so they must read alike.
+ */
+export function amountOf(amount: string, unit: string): string {
+  const u = UNIT_ALIASES[unit.toLowerCase()] ?? unit.toLowerCase()
+  const [times, base] = IN_BASE_UNIT[u] ?? [1, u]
+  return `${Math.round(parseFloat(amount) * times * 1000) / 1000}${base}`
+}
+
+/** {"5000g"} from "Miniket Rice 5 KG" — normalized so spacing, case, alias and kg/g don't matter. */
 export function quantities(text: string): Set<string> {
   const found = new Set<string>()
   for (const [, amount, unit] of text.matchAll(QUANTITY_RE)) {
-    const u = unit.toLowerCase()
-    if (u === 'g' && isNetworkGen(`${amount}g`)) continue
-    found.add(`${parseFloat(amount)}${UNIT_ALIASES[u] ?? u}`)
+    if (unit.toLowerCase() === 'g' && isNetworkGen(`${amount}g`)) continue
+    found.add(amountOf(amount, unit))
   }
   return found
 }

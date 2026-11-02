@@ -14,6 +14,7 @@
  */
 
 import { compact, foundWords, isAccessory, modelTokens, tokens } from './ranking.ts'
+import { decodeEntities, normalizeListing } from './normalize.ts'
 import type { D1Database, Listing } from './types.ts'
 
 const MAX_PAGES = 4
@@ -263,14 +264,8 @@ export function parseProductPage(html: string, slug: string): Listing | null {
   const title = /<meta property="og:title" content="([^"]*)"/.exec(html)?.[1]
   const earlier = title && decodeEntities(title).trim()
   if (earlier && compact(earlier) !== compact(listing.name)) listing.alsoNamed = earlier
-  return listing
+  return normalizeListing(listing)
 }
-
-const ENTITIES: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' ' }
-const decodeEntities = (s: string) =>
-  s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, e: string) =>
-    e[0] === '#' ? String.fromCodePoint(parseInt(e.slice(1).replace(/^x/i, ''), /^#x/i.test(e) ? 16 : 10)) : (ENTITIES[e.toLowerCase()] ?? m),
-  )
 
 /**
  * A category page (allowed by robots.txt) -> its first 20 products, from the
@@ -285,6 +280,7 @@ export function parseCategoryPage(html: string): Listing[] {
     .filter((item): item is LdProduct => Boolean(item?.url))
     .map((item) => toListing(item, String(item.url).split('/product/')[1] ?? ''))
     .filter((l): l is Listing => l !== null && l.url !== 'https://www.cartup.com/product/')
+    .map(normalizeListing)
 }
 
 export async function fetchProduct(slug: string): Promise<Listing | null> {

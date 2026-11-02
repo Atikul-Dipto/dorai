@@ -10,6 +10,7 @@
  */
 
 import { type CartupLookup, searchIndex } from './cartup.ts'
+import { normalizeListing } from './normalize.ts'
 import type { D1Database, Listing } from './types.ts'
 
 const MAX_PAGES = 4
@@ -45,18 +46,17 @@ export function parseProductPage(html: string, slug: string): Listing | null {
   const reviews = Number(/([\d,]+)\s*review\(s\)/i.exec(html)?.[1]?.replace(/,/g, '') ?? 0)
   const width = num(/class="ratings"\s+style="width:\s*([\d.]+)%/i.exec(html)?.[1])
   const original = Number.isFinite(old) && old > price ? old : null
-  const decode = (s: string) => s.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
-  return {
+  return normalizeListing({
     site: 'othoba',
     itemId: `othoba:${product.id ?? slug}`,
-    name: decode(String(product.name ?? slug)).replace(/\s+/g, ' ').trim(),
+    name: String(product.name ?? slug),
     url: `${BASE}/${slug}`,
     image: (Array.isArray(product.image) ? product.image[0] : product.image) ?? '',
     price,
     originalPrice: original,
     discountPercent: original ? Math.round(((original - price) / original) * 100) : null,
-    seller: decode(String(product.offers?.seller ?? product.custom_label_0 ?? '')).trim(),
-    brand: decode(String(product.brand ?? '')).trim(),
+    seller: String(product.offers?.seller ?? product.custom_label_0 ?? ''),
+    brand: String(product.brand ?? ''),
     rating: reviews > 0 && Number.isFinite(width) ? Math.round(width / 2) / 10 : null,
     reviews,
     sold: '',
@@ -67,7 +67,7 @@ export function parseProductPage(html: string, slug: string): Listing | null {
     highlights: Number.isFinite(app) && app < price ? [`App-only price ৳${app} in Othoba's app`] : [],
     relevance: 0,
     matchedFeatures: [],
-  }
+  })
 }
 
 export async function fetchProduct(slug: string): Promise<Listing | null> {

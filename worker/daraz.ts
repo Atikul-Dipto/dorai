@@ -7,6 +7,7 @@
  * users. See ../agent/vouchers.py for where public vouchers come from.
  */
 
+import { normalizeListing } from './normalize.ts'
 import type { Listing } from './types.ts'
 
 const BASE = 'https://www.daraz.com.bd'
@@ -37,7 +38,7 @@ export function toListing(item: any): Listing | null {
   let original = num(item.originalPrice)
   if (original !== null && original <= price) original = null
   const badges: string[] = (item.icons ?? []).map((i: { bizType?: string }) => i.bizType).filter(Boolean)
-  return {
+  return normalizeListing({
     site: 'daraz',
     itemId: String(item.itemId ?? item.nid ?? ''),
     name: String(item.name ?? '').trim(),
@@ -59,7 +60,7 @@ export function toListing(item: any): Listing | null {
     highlights: (item.description ?? []).filter(Boolean).map((h: string) => h.replace(/\s+/g, ' ').trim()),
     relevance: 0,
     matchedFeatures: [],
-  }
+  })
 }
 
 export async function search(

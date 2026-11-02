@@ -190,6 +190,17 @@ test('a kind of item in the product box is a best-fit search, not a named produc
     assert.equal(namesAProduct(name), true, name)
 })
 
+// From the log: "a4tech" came back as a gaming mouse, an office mouse and a USB
+// hub, with an A4Tech headset marked "Same product" — the brand read as a model code.
+test('a brand spelled with a digit is a brand, not a model code', async () => {
+  assert.equal(namesAProduct('a4tech'), false)
+  assert.equal((await buildIntent('a4tech', '', {})).mode, 'need')
+  assert.equal(namesAProduct('A4tech mouse'), false)
+  assert.deepEqual(modelTokens(tokens('A4tech OP-720 Wired Mouse')), ['op720'])
+  const headset = listing('A4Tech Bloody MH360 Wireless Gaming Headset', 2874)
+  assert.equal(relations('A4tech OP-720 Wired Mouse')(headset), null)
+})
+
 test('a lone amount in the needs box is a budget', () => {
   assert.equal(parseRules('30k', true).maxPrice, 30000)
   assert.equal(parseRules('১৫০০০', true).maxPrice, 15000)

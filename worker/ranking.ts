@@ -97,6 +97,10 @@ export function variantsOf(text: string, main?: string): string {
 /** The most specific model code in a title (the longest), if it has one. */
 export const mainModel = (text: string): string | undefined => modelTokens(tokens(text)).sort((a, b) => b.length - a.length)[0]
 const GLUE_STOPWORDS =new Set(['for', 'with', 'under', 'than', 'of', 'and', 'the', 'to', 'in', 'on', 'at'])
+// Brands spelled with a digit. Read as a model code, "a4tech" alone was a
+// named product, and every A4Tech listing (a gaming mouse, an office mouse, a
+// USB hub, a headset) was "the same product".
+const DIGIT_BRANDS = new Set(['a4tech', '3m', '7up', '1more', '8bitdo'])
 
 /**
  * What pins down a specific model, as compact strings the title must contain:
@@ -108,7 +112,7 @@ const GLUE_STOPWORDS =new Set(['for', 'with', 'under', 'than', 'of', 'and', 'the
 export function modelTokens(queryTokens: string[]): string[] {
   const found: string[] = []
   queryTokens.forEach((t, i) => {
-    if (quantities(t).size || SPEC_RE.test(t)) return
+    if (quantities(t).size || SPEC_RE.test(t) || DIGIT_BRANDS.has(t)) return
     if (/\d/.test(t) && /[a-z]/.test(t)) {
       // A short letter prefix is part of the code: "WH-1000XM5" -> "wh1000xm5",
       // so the WF-1000XM5 earbuds don't pass as the WH-1000XM5 headphones.

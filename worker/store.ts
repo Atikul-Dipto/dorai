@@ -16,7 +16,6 @@
  */
 
 import { photoId } from './matching.ts'
-import { mainModel } from './ranking.ts'
 import type { D1Database, HistoryMatch, Listing, Voucher } from './types.ts'
 
 const SAME_PRICE_WINDOW_HOURS = 6
@@ -54,10 +53,15 @@ export async function recordListings(db: D1Database, listings: Listing[], now: s
   const statements = listings.flatMap((l) => [
     db
       .prepare(
-        `INSERT INTO listings (item_id, site, name, url, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(item_id) DO UPDATE SET name = excluded.name, url = excluded.url, last_seen = excluded.last_seen`,
+        // A renamed listing goes through the matching pipeline again (catalog.ts).
+        `INSERT INTO listings (item_id, site, name, url, brand, image, photo_id, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(item_id) DO UPDATE SET
+           match_status = CASE WHEN listings.name = excluded.name THEN listings.match_status END,
+           name = excluded.name, url = excluded.url, brand = COALESCE(NULLIF(excluded.brand, ''), listings.brand),
+           image = COALESCE(NULLIF(excluded.image, ''), listings.image), photo_id = COALESCE(excluded.photo_id, listings.photo_id),
+           last_seen = excluded.last_seen`,
       )
-      .bind(l.itemId, l.site, l.name, l.url, now, now),
+      .bind(l.itemId, l.site, l.name, l.url, l.brand, l.image, photoId(l), now, now),
     db
       .prepare(
         `INSERT INTO price_history (item_id, price, original_price, seen_at, source)
@@ -69,34 +73,6 @@ export async function recordListings(db: D1Database, listings: Listing[], now: s
       .bind(l.itemId, l.price, l.originalPrice, now, l.itemId, cutoff, l.price, l.itemId),
   ])
   if (statements.length) await db.batch(statements)
-}
-
-/**
- * Offers the matching engine found to be one product (on one store or
- * several) grouped under one `products` row; their `listings` rows must
- * exist (recordListings first). An offer already in a product brings the
- * others into it. Returns the product id, or null for a single offer.
- */
-export async function linkProduct(db: D1Database, offers: Listing[], now: string): Promise<number | null> {
-  const ids = [...new Set(offers.map((l) => l.itemId))]
-  if (ids.length < 2) return null
-  const marks = ids.map(() => '?').join(', ')
-  const known = await db.prepare(`SELECT MIN(product_id) AS id FROM listings WHERE item_id IN (${marks}) AND product_id IS NOT NULL`).bind(...ids).first<{ id: number | null }>()
-  let id = known?.id ?? null
-  if (id === null) {
-    const first = offers[0]
-    const row = await db
-      .prepare(`INSERT INTO products (name, model, photo_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id`)
-      .bind(first.name, mainModel(first.name) ?? null, photoId(first), now, now)
-      .first<{ id: number }>()
-    id = row?.id ?? null
-    if (id === null) return null
-  }
-  await db.batch([
-    db.prepare(`UPDATE listings SET product_id = ? WHERE item_id IN (${marks})`).bind(id, ...ids),
-    db.prepare(`UPDATE products SET updated_at = ? WHERE id = ?`).bind(now, id),
-  ])
-  return id
 }
 
 interface VoucherRow {

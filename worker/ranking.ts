@@ -28,7 +28,7 @@ export const isOverseas = (l: Listing) => l.location.toLowerCase() === 'overseas
 export const FEATURE_FILLER = new Set(['good', 'great', 'best', 'nice', 'long', 'big', 'high', 'strong', 'fast', 'excellent', 'better', 'quality', 'resolution', 'refresh', 'rate'])
 export const QUANTITY_RE = /(\d+(?:\.\d+)?)\s*(kg|g|gm|gram|grams|l|ltr|litre|liter|ml|pcs|pc|pack)\b/gi
 const UNIT_RE = /^(kg|g|gm|gram|grams|l|ltr|litre|liter|litres|liters|ml|pcs|pc|pack)$/
-const UNIT_ALIASES: Record<string, string> = { gm: 'g', gram: 'g', grams: 'g', ltr: 'l', litre: 'l', liter: 'l', pc: 'pcs' }
+export const UNIT_ALIASES: Record<string, string> = { gm: 'g', gram: 'g', grams: 'g', ltr: 'l', litre: 'l', liter: 'l', pc: 'pcs' }
 
 export const tokens = (text: string): string[] => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
 export const compact = (text: string) => tokens(text).join('')

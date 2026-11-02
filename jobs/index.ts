@@ -9,13 +9,16 @@
  *      listing through its store adapter (worker/stores.ts);
  *   3. records the price (price history), updates the watches, and sends an
  *      alert (worker/notify.ts) where a drop is worth telling;
- *   4. tidies the queue.
+ *   4. tidies the queue;
+ *   5. runs the product matching engine (worker/catalog.ts) over a batch of
+ *      listings not matched to a canonical product yet.
  *
  * A few checks per run on purpose: Daraz bot-checks bursts from Cloudflare,
  * and the free plan's CPU budget per run is small. 3 per 10 minutes is up to
  * ~430 checks a day, enough for ~100 watched products every 6 hours.
  */
 
+import { matchNewListings } from '../worker/catalog.ts'
 import { notify } from '../worker/notify.ts'
 import { claim, complete, fail, tidy } from '../worker/queue.ts'
 import { recordListings } from '../worker/store.ts'
@@ -24,6 +27,8 @@ import type { Env } from '../worker/types.ts'
 import { enqueueDueChecks, recordCheck } from '../worker/watchlist.ts'
 
 const CHECKS_PER_RUN = 3
+// Listings matched per run: ~7,000 a day, inside the free plan's D1 writes (two per listing).
+const MATCHES_PER_RUN = 50
 
 interface CheckPayload {
   itemId: string
@@ -32,9 +37,9 @@ interface CheckPayload {
   name: string
 }
 
-export async function runJobs(env: Env, now = new Date()): Promise<{ checked: number; alerts: number; failed: number }> {
+export async function runJobs(env: Env, now = new Date()): Promise<{ checked: number; alerts: number; failed: number; matched: number }> {
   const db = env.PP_DB
-  const done = { checked: 0, alerts: 0, failed: 0 }
+  const done = { checked: 0, alerts: 0, failed: 0, matched: 0 }
   if (!db) return done
   const iso = now.toISOString()
   await enqueueDueChecks(db, iso)
@@ -85,6 +90,13 @@ export async function runJobs(env: Env, now = new Date()): Promise<{ checked: nu
     }
   }
   await tidy(db, iso)
+  // The catalogue catches up a batch at a time; a failure here never costs the price checks above.
+  try {
+    const m = await matchNewListings(db, iso, MATCHES_PER_RUN)
+    done.matched = m.new + m.auto + m.review
+  } catch {
+    // tried again next run
+  }
   return done
 }
 

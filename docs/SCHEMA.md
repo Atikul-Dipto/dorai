@@ -1,11 +1,12 @@
 # D1 schema (`price-pulse`)
 
-Migrations: `worker/migrations/0001_init.sql`, `0002_architecture.sql`.
+Migrations: `worker/migrations/0001_init.sql`, `0002_architecture.sql`, `0003_matching_engine.sql`.
 
 | Table | Role in the architecture | Rows written by |
 |---|---|---|
-| `listings` | **Offers**: one per store item (Daraz item, Cartup or Othoba page), with `product_id` once matched | every answer, compare, scheduled check |
-| `products` | **Products**: offers the matching engine found to be the same thing, across stores | named searches and compares (`store.linkProduct`) |
+| `listings` | **Offers**: one per store item (Daraz item, Cartup or Othoba page): name, store brand, image, photo id, and from the matching engine its fingerprint, `product_id`, `match_status` (NULL until processed · `new` · `auto` · `review` · `manual`) and `match_score` | every answer, compare, scheduled check; matching engine |
+| `products` | **Canonical products**: name, brand, model, identity words, fingerprint, photo, specs | matching engine (`catalog.ts`) |
+| `match_reviews` | **Manual review** queue: a listing, its best candidate product, the score, level and reasons; pending · approved · rejected | matching engine, `/api/pp/review` |
 | `price_history` | **Price history**: a point when the price changes or the last is >6h old | every answer, compare, scheduled check; `tools/keyword-batch.ts push` |
 | `devices` | **Users**, anonymous: random id, hashed secret, language, push endpoint, Telegram chat | `/api/pp/device`, `/push`, Telegram webhook |
 | `watches` | A device's watchlist: saved price, optional target, last checked price, last alerted price | `/api/pp/watchlist`, scheduled checks |

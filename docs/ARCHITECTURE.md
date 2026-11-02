@@ -71,17 +71,63 @@ flowchart TB
 | API layer | `functions/api/pp/` | `ask` (search), `compare` (a product link on every store), `vouchers`, `stats`, `device`, `watchlist`, `push`, `alerts`, `telegram-link`, `telegram-webhook`. |
 | Search orchestrator | `worker/agent.ts`, `worker/compare.ts` | Runs one request: reads it, searches the stores in parallel, ranks, matches, compares, remembers, answers with per-step timings. |
 | AI query understanding | `worker/intent.ts` | Product name vs description (`readsAsDescription`, `namesAProduct`); descriptions, Bangla and budgets go to Workers AI (free 10k neurons/day, rules when it's used up). |
-| Product matching engine | `worker/matching.ts`, `worker/ranking.ts` | Same product / other size / close match across differently written titles: model codes, variants, sizes, photo file ids, bundles, accessories. |
+| Product matching engine | `worker/catalog.ts` (catalogue), `worker/matching.ts` + `worker/ranking.ts` (live) | Two halves. The catalogue matches every stored listing to one canonical product, stage by stage (below), in the scheduled jobs. The live half judges same product / other size / close match while an answer is being made, in milliseconds. |
 | Price comparison engine | `worker/comparison.ts`, `worker/eligibility.ts` | Each store's recommended offer (trusted sellers, ≥2% real savings, budget), cross-store price facts, public voucher terms. |
 | Watchlist & alert service | `worker/watchlist.ts`, `worker/devices.ts` | Server copy of a device's saved products (up to 50), check scheduling, the "worth telling" rule (target price, or ≥5% below the saved price, each drop once). |
 | Notification service | `worker/notify.ts` | Web Push with no payload, signed with VAPID (RFC 8292): the service worker fetches the alert text from `/api/pp/alerts`. Telegram bot messages to linked chats. |
-| Scheduled jobs | `jobs/index.ts` (Worker `dorai-jobs`) | Every 10 minutes: queue due checks, take 3 off the queue, read current prices through the adapters, record history, alert. |
+| Scheduled jobs | `jobs/index.ts` (Worker `dorai-jobs`) | Every 10 minutes: queue due checks, take 3 off the queue, read current prices through the adapters, record history, alert; then match 50 unprocessed listings to canonical products. |
 | Task queue | `worker/queue.ts` | D1 `tasks`: one pending task per product, claim/complete, 3 attempts with back-off, tidy after a week. |
 | Store adapters | `worker/stores.ts` + `daraz.ts`, `cartup.ts`, `othoba.ts` | One interface (`find`, `current`) over each store's own way in: Daraz's search JSON; Othoba's search page, read live (server-rendered; its name index is the fallback); Cartup's name index in D1 (its search runs only through a signed API) plus its category pages. Prices always come from product pages or Daraz's search. Daraz products are re-read by search, never their pages. |
 | Data normalization | `worker/normalize.ts` | Every listing leaves its adapter in one shape: decoded names, numeric prices, computed discounts, https images. |
 | Data layer | D1 `price-pulse`, schema in `worker/migrations/` | Plays the diagram's PostgreSQL role (kept on D1 by choice: free, already holds the data, no extra service). See `docs/SCHEMA.md`. |
 | Price history | D1 `price_history` | A point per listing when the price changes or the last point is >6h old; written by every answer and every scheduled check. |
 | Search & price cache | `worker/cache.ts` (Cache API) | Comparisons 6 hours, identical searches 15 minutes; never an answer where a store couldn't be reached. |
+
+## The product matching engine (catalogue)
+
+`worker/catalog.ts`, one function per stage. It runs on every listing DorAI
+records (answers, compares, price checks), 50 per scheduled run, newest
+first; a listing whose name changes goes through again.
+
+```mermaid
+flowchart TB
+  listing["Store Product Listing<br/>listings row: name, store brand, image, photo id"]
+  brand["Extract Brand and Model<br/>extractBrandModel · catalogModel"]
+  title["Normalize Product Title<br/>normalizeTitle"]
+  specs["Extract Specifications<br/>extractSpecs: size, storage, variant, network, colour, bundle"]
+  fp["Generate Product Fingerprint<br/>fingerprint"]
+  exists{"Existing Product Match?<br/>candidates: fingerprint · model · photo · brand + words"}
+  score["Confidence Score<br/>confidence: 0–1, with reasons"]
+  level{"Confidence Level<br/>levelOf"}
+  auto["Automatic Match"]
+  review["Manual Review<br/>match_reviews · /review"]
+  create["Create New Canonical Product<br/>products"]
+  link["Link to Existing Product<br/>listings.product_id"]
+
+  listing --> brand --> title --> specs --> fp --> exists
+  exists -- "Yes (best ≥ 0.40)" --> score --> level
+  exists -- "No" --> create
+  level -- "High (≥ 0.80)" --> auto --> link
+  level -- "Medium (≥ 0.60) / Low (≥ 0.40)" --> review
+  review -- "Same product" --> link
+  review -- "Different" --> exists
+```
+
+| Stage | Rule |
+|---|---|
+| Brand | The store's brand field, unless it says "No Brand"; else the title's first word, unless it's a generic word ("Wireless", "Original", "Mobile"…). Accents are dropped ("Nestlé" → nestle). |
+| Model | The first real letters-and-digits code ("RB40", "L1504FA", "EQ34"); else a short prefix code ("WH-1000XM5"); else a word with a 2+ digit number ("iPhone 15", "Nokia 215"). Never a multiplier, size or dimension ("2x", "3D", "Powder 0+"). |
+| Normalized title | Lower case, no punctuation, no filler or sales talk, amounts in one spelling ("1 Kg" = "1kg"). |
+| Specifications | Sizes and pack counts, storage (GB), variant words (Pro/Plus/Max…), network (4G/5G), colour (shown, never a conflict), bundle. |
+| Fingerprint | `m|brand|model|specs` with a model code, `w|brand|identity words|specs` without. Equal fingerprints describe one product. |
+| Candidates | Products with a listing of the same fingerprint or photo file, the same model code, or the same brand and one of the three longest identity words. Products a person rejected for this listing are left out. |
+| Confidence | A different brand, model, size, storage, variant or network, or a bundle against a single item, scores 0. Otherwise: same brand 0.30 (unknown 0.10), same model 0.35 (code in the other title 0.25), shared identity words up to 0.35 (0.20 with a model), stated size or storage agreeing 0.10, identical title of 5+ words 0.25, same photo file 0.45; at most 1. |
+| Levels | High ≥ 0.80 links automatically. Medium ≥ 0.60 and low ≥ 0.40 wait for a person at `/review` (admin token); the listing stays unlinked meanwhile. Below 0.40 there's no existing match: a new canonical product. |
+| Review | "Same product" links it (`manual`). "Different" remembers the pair and sends the listing through again without that product. |
+
+Answers don't wait for the catalogue: they match live (`matching.ts`), and
+a product's canonical identity is for its history across stores, alerts and,
+later, product pages.
 
 ## What stays on the developer's PC
 

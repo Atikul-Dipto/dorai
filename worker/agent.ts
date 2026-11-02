@@ -380,11 +380,6 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   if (darazDown) darazStore.note = "Couldn't reach Daraz just now — try again in a moment."
   const stores = [darazStore, cartupStore, othobaStore]
   compareAcross(stores)
-  // A named product found on the stores: its offers are kept as one product.
-  if (named && db && database === 'ok') {
-    const offers = stores.flatMap((s) => [s.recommended?.listing, ...s.matches.filter((m) => m.relation === 'same').map((m) => m.listing)])
-    await store.linkProduct(db, offers.filter((l): l is Listing => Boolean(l)), nowIso).catch(() => null)
-  }
   const summary = summarize(stores)
   lap('check')
   timings.total = Date.now() - t0

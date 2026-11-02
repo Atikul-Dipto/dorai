@@ -8,14 +8,15 @@ import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
 import { runJobs } from '../jobs/index.ts'
+import { confidence, decideReview, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
-import { linkProduct, recordListings } from './store.ts'
+import { recordListings } from './store.ts'
 import type { D1Database, D1Statement, Listing } from './types.ts'
 import { dropWorthTelling, putWatches, readWatch } from './watchlist.ts'
 
 function freshDb(): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(':memory:')
-  for (const file of ['0001_init.sql', '0002_architecture.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
+  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
   // Plain objects, as D1 returns (node:sqlite's rows have no prototype).
   const plain = (row: unknown) => (row ? { ...(row as object) } : null)
   const statement = (sql: string, params: unknown[] = []): D1Statement => ({
@@ -66,16 +67,71 @@ test('a drop is told when it reaches the target, or 5% below the saved price, an
   assert.equal(dropWorthTelling({ saved_price: 1000, target_price: null, alerted_price: 900 }, 880), true)
 })
 
-test('offers the matching engine called the same product are one product', async () => {
+test('the matching pipeline: brand, model, title, specs and fingerprint of a listing', () => {
+  const phone = parseListing('Samsung Galaxy A36 5G (8GB/256GB) - Awesome Black', 'Samsung', null)
+  assert.deepEqual([phone.brand, phone.brandFrom, phone.model, phone.specs.storage, phone.specs.network, phone.specs.colour], ['samsung', 'store', 'a36', 256, '5g', 'black'])
+  // No brand from the store: the title's first word, unless it's a generic one.
+  assert.equal(parseListing('Prestige Electric Kettle - 2L', 'No Brand', null).brand, 'prestige')
+  assert.equal(parseListing('Wireless Earbuds TWS Bluetooth 5.3', 'No Brand', null).brand, null)
+  // Amounts in one spelling, so "1 Kg" and "1kg" are one product.
+  assert.equal(normalizeTitle('Starship Full Cream Milk Powder – 1 Kg'), normalizeTitle('STARSHIP Full-Cream Milk Powder 1kg'))
+  assert.equal(parseListing('Starship Full Cream Milk Powder – 1 Kg', 'Starship', null).fingerprint, parseListing('Starship Full Cream Milk Powder 1kg', '', null).fingerprint)
+})
+
+test('the matching pipeline: confidence, and the conflicts that make it zero', () => {
+  const p = (name: string, brand = '', image: string | null = null) => parseListing(name, brand, image)
+  const starship = p('Starship Full Cream Milk Powder - 1kg', 'Starship')
+  assert.equal(levelOf(confidence(p('Starship Full Cream Milk Powder – 1 Kg', 'Starship'), starship).score), 'high')
+  assert.match(confidence(p('Farmland Full Cream Milk Powder – 1kg', 'Farmland'), starship).reasons[0], /different brand/)
+  assert.match(confidence(p('Starship Full Cream Milk Powder - 500gm', 'Starship'), starship).reasons[0], /different size/)
+  assert.match(confidence(p('Samsung Galaxy A36 5G 8/128GB', 'Samsung'), p('Samsung Galaxy A36 5G 8/256GB', 'Samsung')).reasons[0], /different storage/)
+  // Alike, not identical: a person decides.
+  assert.ok(['medium', 'low'].includes(levelOf(confidence(p('Starship Instant Full Cream Milk Powder 1kg'), starship).score)))
+  // Two No Brand watches that differ in one word: unsure on words, sure with the same photo file.
+  const men = p('Fashion Sports Led Watch, Upgraded Version Electronic Bracelet Gift watch for Men', 'No Brand', 'https://x/p/2c6060c50c1952d4884713f4be91002b.jpg')
+  const students = p('Fashion Sports Led Watch, Upgraded Version Electronic Bracelet Gift watch for Students', 'No Brand')
+  assert.notEqual(levelOf(confidence(students, men).score), 'high')
+  assert.equal(levelOf(confidence(students, men, true).score), 'high')
+})
+
+test('the matching pipeline over the database: link, new product, review, and the decisions', async () => {
   const { db, raw } = freshDb()
-  const a = listing('othoba:1', 'othoba', 'Radhuni Mustard Oil 1L', 300)
-  const b = listing('cartup:2', 'cartup', 'Radhuni Mustard Oil 1 Litre', 290)
-  const c = listing('othoba:3', 'othoba', 'Radhuni Mustard Oil 1L', 310)
-  await recordListings(db, [a, b, c], '2026-11-03T00:00:00Z')
-  const id = await linkProduct(db, [a, b], '2026-11-03T00:00:00Z')
-  // A later match bringing a new offer joins the same product.
-  assert.equal(await linkProduct(db, [c, a], '2026-11-03T01:00:00Z'), id)
-  assert.deepEqual({ ...(raw.prepare('SELECT COUNT(DISTINCT product_id) AS n, COUNT(*) AS offers FROM listings WHERE product_id IS NOT NULL').get() as object) }, { n: 1, offers: 3 })
+  const at = (h: number) => `2026-11-03T0${h}:00:00Z`
+  const offer = (itemId: string, site: Listing['site'], name: string, brand: string) => ({ ...listing(itemId, site, name, 700), brand })
+  const steps: [Listing, string][] = [
+    [offer('d1', 'daraz', 'Starship Full Cream Milk Powder - 1kg', 'Starship'), 'new'],
+    [offer('cartup:2', 'cartup', 'Starship Full Cream Milk Powder – 1 Kg', 'Starship'), 'auto'],
+    [offer('cartup:3', 'cartup', 'Farmland Full Cream Milk Powder – 1kg', 'Farmland'), 'new'],
+    [offer('d4', 'daraz', 'Starship Full Cream Milk Powder - 500gm', 'Starship'), 'new'],
+    [offer('othoba:5', 'othoba', 'Starship Instant Full Cream Milk Powder 1kg', ''), 'review'],
+  ]
+  for (const [i, [l, expected]] of steps.entries()) {
+    await recordListings(db, [l], at(i))
+    const stored = raw.prepare('SELECT item_id, site, name, brand, image FROM listings WHERE item_id = ?').get(l.itemId) as unknown as StoredListing
+    assert.equal((await matchListing(db, { ...stored }, at(i))).outcome, expected, l.name)
+  }
+  const productOf = (id: string) => (raw.prepare('SELECT product_id FROM listings WHERE item_id = ?').get(id) as { product_id: number | null }).product_id
+  assert.equal(productOf('cartup:2'), productOf('d1'))
+  assert.equal(productOf('othoba:5'), null)
+
+  // "Same product": linked by hand.
+  const review = raw.prepare("SELECT id, product_id FROM match_reviews WHERE item_id = 'othoba:5'").get() as { id: number; product_id: number }
+  assert.equal(review.product_id, productOf('d1'))
+  assert.equal(await decideReview(db, review.id, true, at(6)), true)
+  assert.equal(productOf('othoba:5'), productOf('d1'))
+  assert.equal(await decideReview(db, review.id, true, at(6)), false)
+
+  // "Different": back through the pipeline without that product, so a new one.
+  await recordListings(db, [offer('othoba:6', 'othoba', 'Starship Instant Full Cream Milk Powder 1kg', '')], at(7))
+  assert.deepEqual(await matchNewListings(db, at(7), 10), { new: 0, auto: 0, review: 1 })
+  const second = raw.prepare("SELECT id FROM match_reviews WHERE item_id = 'othoba:6'").get() as { id: number }
+  await decideReview(db, second.id, false, at(8))
+  assert.deepEqual(await matchNewListings(db, at(8), 10), { new: 1, auto: 0, review: 0 })
+  assert.notEqual(productOf('othoba:6'), productOf('d1'))
+
+  // A renamed listing is matched again.
+  await recordListings(db, [offer('cartup:3', 'cartup', 'Farmland Full Cream Milk Powder 1kg Tin', 'Farmland')], at(9))
+  assert.equal((raw.prepare("SELECT match_status FROM listings WHERE item_id = 'cartup:3'").get() as { match_status: string | null }).match_status, null)
 })
 
 test('scheduled jobs: a watched product is checked, its drop recorded and pushed once', async () => {
@@ -106,7 +162,7 @@ test('scheduled jobs: a watched product is checked, its drop recorded and pushed
   }) as typeof fetch
   try {
     const first = await runJobs(env, new Date('2026-11-03T00:10:00Z'))
-    assert.deepEqual(first, { checked: 1, alerts: 1, failed: 0 })
+    assert.deepEqual(first, { checked: 1, alerts: 1, failed: 0, matched: 1 })
     assert.equal(pushes.length, 1)
     // VAPID: a signed JWT for the push service's origin, and our public key.
     const [, jwt, k] = /^vapid t=([^,]+), k=(.+)$/.exec(pushes[0].authorization) ?? []
@@ -121,9 +177,9 @@ test('scheduled jobs: a watched product is checked, its drop recorded and pushed
     assert.equal((raw.prepare("SELECT COUNT(*) AS n FROM price_history WHERE item_id = 'othoba:9'").get() as { n: number }).n, 1)
 
     // Ten minutes later: checked recently, so nothing is due, and nothing is told twice.
-    assert.deepEqual(await runJobs(env, new Date('2026-11-03T00:20:00Z')), { checked: 0, alerts: 0, failed: 0 })
+    assert.deepEqual(await runJobs(env, new Date('2026-11-03T00:20:00Z')), { checked: 0, alerts: 0, failed: 0, matched: 0 })
     // Seven hours later it's checked again; the same price is not news.
-    assert.deepEqual(await runJobs(env, new Date('2026-11-03T07:20:00Z')), { checked: 1, alerts: 0, failed: 0 })
+    assert.deepEqual(await runJobs(env, new Date('2026-11-03T07:20:00Z')), { checked: 1, alerts: 0, failed: 0, matched: 0 })
   } finally {
     globalThis.fetch = real
   }

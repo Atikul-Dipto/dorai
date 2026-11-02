@@ -8,11 +8,11 @@
 import { compact, foundWords, isAccessory, isBundle, mainModel, modelTokens, namesAllOf, quantities, sizesAgree, storageOf, tokens, variantsOf, withoutVariants } from './ranking.ts'
 import type { Intent, Listing } from './types.ts'
 
-const STOP = new Set(['for', 'with', 'and', 'the', 'of', 'new', 'original', 'pcs', 'pc', 'official', 'warranty'])
+export const STOP = new Set(['for', 'with', 'and', 'the', 'of', 'new', 'original', 'pcs', 'pc', 'official', 'warranty'])
 export const words = (s: string) => tokens(s).filter((t) => !STOP.has(t))
 // Words sellers add to any title; they never make it a different product.
-const SALES_TALK = new Set(['premium', 'quality', 'high', 'best', 'special', 'genuine', 'authentic', 'imported', 'fresh', 'super', 'top', 'hot', 'sale', 'care'])
-const COLOURS = new Set(['black', 'white', 'red', 'blue', 'green', 'pink', 'grey', 'gray', 'silver', 'gold', 'purple', 'yellow', 'orange', 'brown', 'graphite'])
+export const SALES_TALK = new Set(['premium', 'quality', 'high', 'best', 'special', 'genuine', 'authentic', 'imported', 'fresh', 'super', 'top', 'hot', 'sale', 'care'])
+export const COLOURS = new Set(['black', 'white', 'red', 'blue', 'green', 'pink', 'grey', 'gray', 'silver', 'gold', 'purple', 'yellow', 'orange', 'brown', 'graphite'])
 
 export type Relation = 'same' | 'variant' | 'close'
 
@@ -147,9 +147,8 @@ export const UNBRANDED = /^(no ?brand|generic|oem|unbranded|n\/a)$/i
  * ("/p/2c6060c50c1952d4884713f4be91002b.jpg"), and sellers who copy a
  * listing to Cartup upload the same file ("/product/2c6060c5...-1743053179278.webp").
  */
-export function photoId(l: Listing): string | null {
-  return /\/([0-9a-f]{32})(?=[-._])/i.exec(l.image ?? '')?.[1]?.toLowerCase() ?? null
-}
+export const photoFile = (image: string | null | undefined): string | null => /\/([0-9a-f]{32})(?=[-._])/i.exec(image ?? '')?.[1]?.toLowerCase() ?? null
+export const photoId = (l: Listing): string | null => photoFile(l.image)
 
 /** The listings that are the same product as `title`. */
 export function sameProduct(listings: Listing[], title: string, ref?: Listing | null): Listing[] {

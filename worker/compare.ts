@@ -214,11 +214,6 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
     answerFor('othoba', 'Othoba', othobaPool, null),
   ]
   compareAcross(stores)
-  // The matching engine's verdict, kept: every offer of this product, on every store, is one product.
-  if (db) {
-    const offers = [source, ...stores.flatMap((s) => [s.recommended?.listing, ...s.matches.filter((m) => m.relation === 'same').map((m) => m.listing)])]
-    await store.linkProduct(db, offers.filter((l): l is Listing => Boolean(l)), nowIso).catch(() => null)
-  }
 
   const here = toResult(source)
   const elsewhere = stores

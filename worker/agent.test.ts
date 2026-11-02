@@ -702,6 +702,18 @@ test('unbranded watches: the same photo file is the same product, a look-alike t
   assert.equal(relations(lotion.name, lotion)(onCartup('Parachute Just for Baby - Baby Lotion 100ml', 198, { brand: 'Parachute', image: 'https://x/product/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-1.webp' })), 'same')
 })
 
+// From a search on 2026-11-03: the kettle was on Cartup under Daraz's exact
+// title, but both stores call it "No Brand" and each seller uploaded its own
+// photo, so it showed as only a close match.
+test('an unbranded product copied word for word to another store is the same product', () => {
+  const title = 'Prestige Electric Kettle - 2L - Silver and Black - Elevate Your Tea-Making Experience'
+  const daraz = listing(title, 796, { brand: 'No Brand', image: 'https://static-01.daraz.com.bd/p/efa7cc4686a512f0a8fbb9575cb0730e.png' })
+  const relate = relations(daraz.name, daraz)
+  assert.equal(relate(onCartup(title, 780, { brand: 'No Brand', image: 'https://x/product/5f0b879-75030e6e.webp' })), 'same')
+  // A shorter or reworded title still needs the photo to say so.
+  assert.equal(relate(onCartup('Prestige Electric Kettle - 2L - Silver and Black', 947, { brand: 'No Brand', image: 'https://x/product/9d3eb82-58c89670.webp' })), 'close')
+})
+
 test('"ruchi sauce": a Ruchi chanachur has the brand but is no sauce, so it is never the pick', () => {
   const need: Intent = { ...product('ruchi sauce'), mode: 'need' }
   assert.deepEqual(rank([listing('Ruchi Chanachur Hot 150gm', 50), listing('Ruchi Chanachur Hot 350gm', 100)], need).ranked, [])

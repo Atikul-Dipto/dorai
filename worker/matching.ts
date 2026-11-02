@@ -117,8 +117,14 @@ export function relations(title: string, ref?: Listing | null): (l: Listing) => 
   const order: (Relation | null)[] = ['same', 'variant', 'close', null]
   const photo = ref ? photoId(ref) : null
   // "Fashion Sports Led Watch... for Men" and "...for Students" are two
-  // different No Brand watches: for these, the title is no identity.
+  // different No Brand watches: for these, a look-alike title is no identity.
   const titleProves = !ref || Boolean(main) || !UNBRANDED.test(ref.brand.trim())
+  // A copied listing is, though: "Prestige Electric Kettle - 2L - Silver and
+  // Black - Elevate Your Tea-Making Experience", word for word on Daraz and
+  // Cartup (both "No Brand", each with its own photo upload). Long enough
+  // to be specific, identical once case and punctuation are set aside.
+  const wording = titleTokens.length >= 5 ? titleTokens.join(' ') : null
+  const sameWording = (l: Listing) => wording !== null && [l.name, l.alsoNamed].some((n) => n && tokens(n).join(' ') === wording)
   return (l) => {
     if (!l.inStock || isAccessory(l, titleTokens)) return null
     // A renamed Cartup listing is what it is under either of its names.
@@ -128,7 +134,7 @@ export function relations(title: string, ref?: Listing | null): (l: Listing) => 
     // The same photo file: Cartup's "Squares Led Digital Sports Watch" is
     // Daraz's "Fashion Sports Led Watch", uploaded with Daraz's own photo.
     if (photoId(l) === photo) return isBundle(l.name) && !bundle ? null : size.size && quantities(l.name).size && !sizesAgree(size, l.name) ? 'variant' : 'same'
-    return byTitle === 'same' && !titleProves ? 'close' : byTitle
+    return byTitle === 'same' && !titleProves && !sameWording(l) ? 'close' : byTitle
   }
 }
 

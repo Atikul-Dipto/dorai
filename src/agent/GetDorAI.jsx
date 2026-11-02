@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-const EXTENSION_SOURCE = 'https://github.com/Atikul-Dipto/Atikul-Dipto.github.io/tree/main/ecommerce-price-tracker/extension'
+const EXTENSION_SOURCE = 'https://github.com/Atikul-Dipto/dorai/tree/main/extension'
 
 // The two ways to use DorAI outside this page: installed on a phone, where
 // Share in the Daraz, Cartup or Othoba app sends a product here (Android), and the

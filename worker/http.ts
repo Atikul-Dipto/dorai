@@ -1,7 +1,7 @@
-/** Response helpers shared by the Price Pulse endpoints in functions/api/pp/. */
+/** Response helpers shared by the DorAI endpoints in functions/api/pp/. */
 
-// Same origins as the silo's citizens register: both copies of the site, plus local dev.
-const ALLOWED = [/^https:\/\/atikul-dipto\.github\.io$/, /^https:\/\/([a-z0-9-]+\.)?atikul-islam-portfolio\.pages\.dev$/, /^http:\/\/(127\.0\.0\.1|localhost):\d+$/]
+// DorAI's own site (and its preview deployments), plus local dev.
+const ALLOWED = [/^https:\/\/([a-z0-9-]+\.)?dorai-bd\.pages\.dev$/, /^http:\/\/(127\.0\.0\.1|localhost):\d+$/]
 
 export function cors(request: Request): Record<string, string> {
   const origin = request.headers.get('origin') ?? ''

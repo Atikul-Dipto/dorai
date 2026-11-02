@@ -3,7 +3,7 @@
 // last copy of the page's own files for when the connection drops. Prices
 // and answers are never cached here: they come from the agent, live.
 const CACHE = 'dorai-page-v1'
-const BASE = new URL('./', self.location).pathname // "/price-pulse/"
+const BASE = new URL('./', self.location).pathname // "/"
 
 self.addEventListener('install', () => self.skipWaiting())
 

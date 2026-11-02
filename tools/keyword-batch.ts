@@ -304,7 +304,7 @@ function push() {
   })
   writeFileSync(DIR + 'push.sql', sql.join('\n'))
   if (args.includes('--send')) {
-    execSync('npx wrangler d1 execute price-pulse --remote --file ecommerce-price-tracker/data/keywords/push.sql', { cwd: path('../'), stdio: 'inherit' })
+    execSync('npx wrangler d1 execute price-pulse --remote --file data/keywords/push.sql', { cwd: path('./'), stdio: 'inherit' })
   }
   const mark = sqlite.prepare('UPDATE price_history SET pushed = 1 WHERE id = ?')
   if (args.includes('--send') || args.includes('--mark')) for (const p of points) mark.run(p.id)

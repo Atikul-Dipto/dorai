@@ -1,8 +1,7 @@
-// The shopping agent runs as a Cloudflare Pages Function on the Cloudflare
-// copy of the site (functions/api/pp/ at the repo root, code in ../worker/);
-// both copies of this page call it there. VITE_AGENT_API points development
+// The shopping agent runs as a Cloudflare Pages Function on the same site
+// (functions/api/pp/, code in ../worker/). VITE_AGENT_API points development
 // at a preview deployment instead.
-export const AGENT_API = import.meta.env.VITE_AGENT_API ?? 'https://atikul-islam-portfolio.pages.dev/api/pp'
+export const AGENT_API = import.meta.env.VITE_AGENT_API ?? 'https://dorai-bd.pages.dev/api/pp'
 
 async function getJson(response) {
   const data = await response.json().catch(() => null)

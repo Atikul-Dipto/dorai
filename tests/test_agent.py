@@ -1,6 +1,6 @@
 """Offline tests for the agent's deterministic parts — no network, no LLM,
 no database. Fixtures are trimmed from real Daraz responses seen on
-2026-10-21. Run from ecommerce-price-tracker/:
+2026-10-21. Run from the repo root:
 
     .venv\\Scripts\\python.exe -m unittest discover tests
 """

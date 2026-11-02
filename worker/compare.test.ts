@@ -1,5 +1,5 @@
 // Offline tests for compare.ts — fetch is replaced, so no network, AI or D1.
-//   node --test ecommerce-price-tracker/worker/compare.test.ts
+//   node --test worker/compare.test.ts
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 

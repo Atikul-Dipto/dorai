@@ -1,5 +1,5 @@
 """Backend settings, env-driven. Reads a .env file in the working directory
-(ecommerce-price-tracker/, same as where run_pipeline.py is invoked from).
+(the repo root, same as where run_pipeline.py is invoked from).
 """
 
 from __future__ import annotations

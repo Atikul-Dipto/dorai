@@ -1,7 +1,7 @@
 // DorAI's one network call: the product page's address and title go to the
 // compare service, which answers with that product on every store. It runs
 // here, not in the page, so the stores' pages never talk to DorAI directly.
-const API = 'https://atikul-islam-portfolio.pages.dev/api/pp/compare'
+const API = 'https://dorai-bd.pages.dev/api/pp/compare'
 
 chrome.runtime.onMessage.addListener((message, _sender, reply) => {
   if (message?.type !== 'compare') return false
@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
 })
 
 // The toolbar icon: the full comparison for the page this tab is on, or DorAI itself.
-const SITE = 'https://atikul-islam-portfolio.pages.dev/price-pulse/'
+const SITE = 'https://dorai-bd.pages.dev/'
 const STORE = /^https:\/\/(www\.)?(daraz\.com\.bd|cartup\.com|othoba\.com)\//i
 
 chrome.action.onClicked.addListener((tab) => {

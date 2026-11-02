@@ -1,6 +1,6 @@
 """FastAPI app entrypoint.
 
-Run from ecommerce-price-tracker/ so the sibling `scraper` package resolves:
+Run from the repo root so the sibling `scraper` package resolves:
 
     python -m uvicorn backend.app.main:app --reload --port 8000
 """

@@ -1,6 +1,6 @@
 /**
- * Shared shapes for the Price Pulse agent as it runs on Cloudflare
- * (functions/api/pp/* at the site root). A port of the Python agent in
+ * Shared shapes for the DorAI agent as it runs on Cloudflare
+ * (functions/api/pp/*). A port of the Python agent in
  * ../agent/ — same steps, same rules; the Python copy stays the local
  * development and voucher-harvesting side. Prices are BDT numbers.
  */

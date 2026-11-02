@@ -1,9 +1,9 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-// Served as a sub-page of the portfolio: atikul-dipto.github.io/price-pulse/
+// Served at the root of its own site: https://dorai-bd.pages.dev
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/price-pulse/',
+  base: '/',
   plugins: [react()],
 })

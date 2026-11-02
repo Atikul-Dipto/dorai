@@ -1,4 +1,4 @@
-"""Command line for the agent. Run from ecommerce-price-tracker/ with the
+"""Command line for the agent. Run from the repo root with the
 project venv:
 
     .venv\\Scripts\\python.exe -m agent "Samsung Galaxy A36"

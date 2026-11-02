@@ -27,7 +27,6 @@ from pathlib import Path
 
 from .models import Voucher
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 PROJECT = Path(__file__).resolve().parents[1]
 DATABASE = "price-pulse"
 ITEM_ID_RE = re.compile(r"-i(\d+)(?:-s\d+)?\.html")
@@ -56,7 +55,7 @@ def execute(sql: str) -> None:
         f.write(sql)
         path = f.name
     try:
-        subprocess.run([npx, "wrangler", "d1", "execute", DATABASE, "--remote", "--yes", "--file", path], cwd=REPO_ROOT, check=True)
+        subprocess.run([npx, "wrangler", "d1", "execute", DATABASE, "--remote", "--yes", "--file", path], cwd=PROJECT, check=True)
     finally:
         Path(path).unlink(missing_ok=True)
 

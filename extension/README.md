@@ -12,7 +12,7 @@ It works in Chrome, Edge and Firefox, from one Manifest V3 folder.
 
 ## What it sends, and where
 
-The product page's address and title, and nothing else, go to DorAI's compare service at `https://atikul-islam-portfolio.pages.dev/api/pp/compare` ([`../worker/compare.ts`](../worker/compare.ts)). The request comes from the extension's background script, never from the store's page.
+The product page's address and title, and nothing else, go to DorAI's compare service at `https://dorai-bd.pages.dev/api/pp/compare` ([`../worker/compare.ts`](../worker/compare.ts)). The request comes from the extension's background script, never from the store's page.
 
 The service logs the product address to see how answers go. It keeps nothing about the person browsing: no account, no cookies, no history of their pages.
 

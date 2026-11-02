@@ -2,11 +2,13 @@
 
 DorAI finds the best price for one product across Daraz, Cartup and Othoba. You can name a product, describe what you need, or show it a product you're already looking at.
 
-Renamed from Price Pulse on 2026-11-02: [pricepulse.co.nz](https://www.pricepulse.co.nz/) is a different product of the same kind. The page still lives at `/price-pulse/`, so existing links keep working.
+Renamed from Price Pulse on 2026-11-02: [pricepulse.co.nz](https://www.pricepulse.co.nz/) is a different product of the same kind.
+
+**Live at [dorai-bd.pages.dev](https://dorai-bd.pages.dev/).** It moved out of the [portfolio repo](https://github.com/Atikul-Dipto/Atikul-Dipto.github.io) into this one on 2026-11-02, with its history. The old address (`atikul-islam-portfolio.pages.dev/price-pulse/`) redirects here.
 
 ## Where shoppers use it
 
-- **The web page** (`/price-pulse/`). Ask by name or need, as described below. Paste a Daraz or Cartup product link into the name box to compare that exact product.
+- **The web page** ([dorai-bd.pages.dev](https://dorai-bd.pages.dev/)). Ask by name or need, as described below. Paste a Daraz or Cartup product link into the name box to compare that exact product.
 - **The browser extension** ([`extension/`](extension/README.md), Chrome, Edge and Firefox). It adds a panel to Daraz and Cartup product pages: the same product on the other store, cheaper trusted sellers, and the lowest price seen.
 - **The installable app on Android.** The page installs from the browser ("Install DorAI" or "Add to Home screen"). Its [manifest](public/manifest.webmanifest) declares a share target, so **Share → DorAI** in the Daraz or Cartup app opens the comparison for that product. It needs no Play Store. iPhones don't allow web apps as share targets, so iPhone users paste the link instead.
 
@@ -134,7 +136,7 @@ D1's free plan allows 100k written rows a day, and a new listing costs about fou
 
 ### Live on the website (Cloudflare)
 
-The Price Pulse page is built around the agent. The agent itself runs as a **Cloudflare Pages Function**: `functions/api/pp/{ask,vouchers,stats}.ts` at the repo root, with the code in [`worker/`](worker/), a TypeScript port of `agent/`. Both copies of the site call it at `https://atikul-islam-portfolio.pages.dev/api/pp/`. It's all on the free plan:
+The DorAI page is built around the agent. The agent itself runs as a **Cloudflare Pages Function** on the same site (Pages project `dorai-bd`): `functions/api/pp/{ask,compare,vouchers,stats}.ts`, with the code in [`worker/`](worker/), a TypeScript port of `agent/`. The page, the extension and the app call it at `https://dorai-bd.pages.dev/api/pp/`. Bindings are in [`wrangler.toml`](wrangler.toml). It's all on the free plan:
 
 - **Workers AI** (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) reads the request in ~1.5s, at ~14 of the 10,000 free daily neurons per question. Past the daily allowance the call fails, and the rule-based parser answers instead.
 - **D1** (`price-pulse`, schema in `worker/migrations/`) is the agent's memory: listings, price history, vouchers, and a log of questions asked (nothing about the visitor). It was seeded with the scrapers' Daraz history.
@@ -145,8 +147,10 @@ Things only this PC can do, pushed up to D1:
 ```powershell
 .venv\Scripts\python.exe -m agent --harvest-vouchers --push-d1   # refresh vouchers (Selenium)
 .venv\Scripts\python.exe -m agent --seed-d1                      # copy scraper price history
-node --test worker/agent.test.ts                                 # tests for the TypeScript port
+npm test                                                         # tests for the TypeScript port
 ```
+
+Deploying is by hand, not on push: `npm run deploy` builds the page and uploads it with the functions. The `ADMIN_TOKEN` secret is set on the Pages project (`npx wrangler pages secret put ADMIN_TOKEN --project-name dorai-bd`); the local copy lives in `.dev.vars`, which is gitignored.
 
 **Two boxes, on purpose (2026-10-22):** a *product name*, searched exactly as typed and never rewritten by the AI, and an optional *what do you need* (features and budget, any language), which is the only text the AI reads. A named product always comes first. Its other sellers follow, plus a **best choice** beneath it:
 - the same product meaningfully cheaper (≥2%) from a seller worth trusting (Daraz Mall, or ★4+ from 5+ reviews), or
@@ -298,7 +302,7 @@ This is what turns "a JSON snapshot I re-export by hand" into a real, continuous
 #    run Postgres for other projects on the default 5432)
 docker compose up -d
 
-# 2. Start the API (run from ecommerce-price-tracker/ so the sibling
+# 2. Start the API (run from the repo root so the sibling
 #    `scraper` package resolves; -m is important, see note below)
 .venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8000
 ```

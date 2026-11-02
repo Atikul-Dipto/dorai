@@ -1,6 +1,6 @@
 // Offline tests for the Cloudflare port — same cases as ../tests/test_agent.py,
 // so the two copies of the rules stay in lockstep. No network, AI or D1.
-//   node --test ecommerce-price-tracker/worker/agent.test.ts
+//   node --test worker/agent.test.ts
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 

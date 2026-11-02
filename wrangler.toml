@@ -1,0 +1,18 @@
+# Cloudflare Pages: DorAI's page (built into dist/ by `npm run build`) and
+# its agent (functions/api/pp/). Deployed by hand with `npm run deploy`.
+name = "dorai-bd"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-10-01"
+
+# The agent's memory: listings, price history, vouchers, the Cartup and
+# Othoba name indexes, and a log of questions asked (nothing about the visitor).
+[[d1_databases]]
+binding = "PP_DB"
+database_name = "price-pulse"
+database_id = "d9bbf033-8bd7-4f43-b262-47205d06b485"
+migrations_dir = "worker/migrations"
+
+# Workers AI (free plan: 10,000 neurons/day, requests fail rather than bill
+# past that) -- reads shopper requests for the agent.
+[ai]
+binding = "AI"

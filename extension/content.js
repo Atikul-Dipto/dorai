@@ -2,7 +2,7 @@
 // product on the other store, a cheaper trusted seller if there is one, and
 // the lowest price DorAI has seen. Both stores change pages without reloading,
 // so the address is watched rather than read once.
-const SITE = 'https://atikul-islam-portfolio.pages.dev'
+const SITE = 'https://dorai-bd.pages.dev'
 const PRODUCT = /daraz\.com\.bd\/products\/[^?#]*-i\d+[^?#]*\.html|cartup\.com\/product\/[^?#/]+|othoba\.com\/[a-z0-9][a-z0-9-]*\/?$/i
 
 const money = (v) => `৳${Math.round(v).toLocaleString('en-US')}`
@@ -178,7 +178,7 @@ function render() {
             text: `Lowest we've seen: ${money(history.lowestPrice)} · ${history.checks} checks since ${day(history.firstSeen)}`,
           })
         : null,
-      el('a', { class: 'foot', href: `${SITE}/price-pulse/?link=${encodeURIComponent(link)}`, target: '_blank', rel: 'noopener', text: 'Full comparison on DorAI →' }),
+      el('a', { class: 'foot', href: `${SITE}/?link=${encodeURIComponent(link)}`, target: '_blank', rel: 'noopener', text: 'Full comparison on DorAI →' }),
     ),
   )
 }

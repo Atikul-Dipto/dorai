@@ -37,7 +37,7 @@ from .d1 import PROJECT
 DATA = PROJECT / "data" / "othoba"
 BASE = "https://othoba.com"
 START = "/food-grocery"  # any category page carries the full menu
-UA = "Mozilla/5.0 (compatible; DorAIIndexer/1.0; +https://atikul-islam-portfolio.pages.dev/price-pulse/)"
+UA = "Mozilla/5.0 (compatible; DorAIIndexer/1.0; +https://dorai-bd.pages.dev/)"
 PAUSE = 1.0
 MAX_PAGES = 400  # per category, a safety stop
 

@@ -14,9 +14,14 @@ Why it's built this way (checked 2026-11-02):
   the agent reads per question (worker/othoba.ts).
 
 So this walks the categories in the order Othoba's menu lists them, one page
-a second. A parent category holds its subcategories' products, so a
-category stops at the first page with nothing new: subcategories cost about
-one request each. The product name is in the address:
+a second. A parent category holds its subcategories' products, so a category
+is left after 3 pages in a row with nothing new (subcategories cost about
+three requests each) or at a page with no products at all. The first crawl
+(2026-11-02) left a category at its first page with nothing new and missed
+most of the electronics (Awei T50 earbuds, all of "audio-3"): a category's
+first page often repeats products seen elsewhere. A page that should have
+products but comes back empty is asked for once more after a pause. Every
+crawl keeps what earlier ones found. The product name is in the address:
     /fresh-fortified-soyebean-oil-5ltr-2  ->  "fresh fortified soyebean oil 5ltr 2"
 
     .venv\\Scripts\\python.exe -m agent --index-othoba            # crawl + upload (~1 hour)
@@ -40,6 +45,7 @@ START = "/food-grocery"  # any category page carries the full menu
 UA = "Mozilla/5.0 (compatible; DorAIIndexer/1.0; +https://dorai-bd.pages.dev/)"
 PAUSE = 1.0
 MAX_PAGES = 400  # per category, a safety stop
+STALE_PAGES = 3  # pages in a row with nothing new before a category is left
 
 CARD_RE = re.compile(r'data-productid="(\d+)"[\s\S]*?<a href="/([a-z0-9][a-z0-9-]*)"')
 LINK_RE = re.compile(r'href="/([a-z0-9][a-z0-9-]*)"')
@@ -77,19 +83,30 @@ def crawl(log=print) -> list[str]:
     seen_ids: set[str] = set()
     requests_made = 1
     for n, category in enumerate(categories, start=1):
-        added = 0
+        added = stale = 0
+        previous = None  # how many products the last page had
         for page in range(1, MAX_PAGES + 1):
-            html = fetch(session, f"/{category}" + (f"?pagenumber={page}" if page > 1 else ""))
+            path = f"/{category}" + (f"?pagenumber={page}" if page > 1 else "")
+            html = fetch(session, path)
             requests_made += 1
             time.sleep(PAUSE)
             found = CARD_RE.findall(html)
+            if not found and (previous is None or previous >= 30):
+                # Expected products and got none: a hiccup, not the end. Once more, after a pause.
+                time.sleep(30)
+                found = CARD_RE.findall(fetch(session, path))
+                requests_made += 1
+            if not found:
+                break  # the end of the category
             new = [(pid, slug) for pid, slug in found if pid not in seen_ids]
             for pid, slug in new:
                 seen_ids.add(pid)
                 slugs[slug] = None
             added += len(new)
-            if not new:
-                break  # the end of the category, or its products came with a parent
+            stale = 0 if new else stale + 1
+            if stale >= STALE_PAGES:
+                break  # its products came with a parent category
+            previous = len(found)
         log(f"{n}/{len(categories)} {category}: +{added} (total {len(slugs)}, {requests_made} requests)")
     return list(slugs)
 
@@ -97,8 +114,11 @@ def crawl(log=print) -> list[str]:
 def run(push: bool = True) -> dict:
     t0 = time.time()
     DATA.mkdir(parents=True, exist_ok=True)
-    slugs = crawl()
-    (DATA / "slugs.json").write_text(json.dumps(slugs), encoding="utf-8")
+    saved = DATA / "slugs.json"
+    earlier = json.loads(saved.read_text(encoding="utf-8")) if saved.exists() else []
+    # This crawl's finds first, then anything earlier crawls found that this one didn't.
+    slugs = list(dict.fromkeys([*crawl(), *earlier]))
+    saved.write_text(json.dumps(slugs), encoding="utf-8")
     postings, common = build_postings(slugs)
     stmts = statements(slugs, postings, common, prefix="othoba")
     stats = {"products": len(slugs), "tokens": len(postings), "too_common": len(common), "rows": len(stmts), "sql_mb": round(sum(map(len, stmts)) / 1e6, 1)}

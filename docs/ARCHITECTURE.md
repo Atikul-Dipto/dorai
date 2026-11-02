@@ -77,7 +77,7 @@ flowchart TB
 | Notification service | `worker/notify.ts` | Web Push with no payload, signed with VAPID (RFC 8292): the service worker fetches the alert text from `/api/pp/alerts`. Telegram bot messages to linked chats. |
 | Scheduled jobs | `jobs/index.ts` (Worker `dorai-jobs`) | Every 10 minutes: queue due checks, take 3 off the queue, read current prices through the adapters, record history, alert. |
 | Task queue | `worker/queue.ts` | D1 `tasks`: one pending task per product, claim/complete, 3 attempts with back-off, tidy after a week. |
-| Store adapters | `worker/stores.ts` + `daraz.ts`, `cartup.ts`, `othoba.ts` | One interface (`find`, `current`) over each store's own way in: Daraz's search JSON; Cartup's and Othoba's name indexes in D1 and their product pages. Daraz products are re-read by search, never their pages. |
+| Store adapters | `worker/stores.ts` + `daraz.ts`, `cartup.ts`, `othoba.ts` | One interface (`find`, `current`) over each store's own way in: Daraz's search JSON; Othoba's search page, read live (server-rendered; its name index is the fallback); Cartup's name index in D1 (its search runs only through a signed API) plus its category pages. Prices always come from product pages or Daraz's search. Daraz products are re-read by search, never their pages. |
 | Data normalization | `worker/normalize.ts` | Every listing leaves its adapter in one shape: decoded names, numeric prices, computed discounts, https images. |
 | Data layer | D1 `price-pulse`, schema in `worker/migrations/` | Plays the diagram's PostgreSQL role (kept on D1 by choice: free, already holds the data, no extra service). See `docs/SCHEMA.md`. |
 | Price history | D1 `price_history` | A point per listing when the price changes or the last point is >6h old; written by every answer and every scheduled check. |
@@ -93,6 +93,6 @@ public vouchers. See `docs/OPERATIONS.md`.
 ## Rules the design keeps
 
 - Prices only ever come from the stores, live or as recorded history; nothing is estimated.
-- No signed or anti-abuse store APIs (Daraz mtop, Cartup sxsrf, Othoba's obscured search key); robots.txt is followed; Daraz's bot checks are never evaded. The scheduled checks are deliberately few per run.
+- No signed or anti-abuse store APIs (Daraz mtop, Cartup's signed `sxsrf` search, Othoba's hidden search key) and no evading bot checks. Public pages are read at a polite rate: Othoba's search page is read although its robots.txt asks robots not to (the owner's decision, 2026-11-03), one page per question. The scheduled checks are deliberately few per run.
 - No accounts and no personal data: a device is a random id; the asks log has no visitor information; rate limits count salted hashes of addresses.
 - Free plan only.

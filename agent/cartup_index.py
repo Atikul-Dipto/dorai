@@ -88,8 +88,10 @@ def b36(n: int) -> str:
     return out
 
 
-def download(fresh_days: float = 6) -> list[Path]:
-    """The product sitemap files, re-downloaded when older than `fresh_days`."""
+def download(fresh_days: float = 1) -> list[Path]:
+    """The product sitemap files, re-downloaded when older than `fresh_days`.
+    Cartup refreshes them daily; a 6-day reuse once missed a product it had
+    added that week (Starship Full Cream Milk Powder 1 kg, 2026-11-03)."""
     DATA.mkdir(parents=True, exist_ok=True)
     index = requests.get(SITEMAP_INDEX, headers={"User-Agent": UA}, timeout=60).text
     urls = re.findall(r"<loc>([^<]+)</loc>", index)

@@ -1,16 +1,22 @@
 /**
- * Othoba as an agent tool. Its search isn't open to agents (robots.txt
- * disallows /search?, and the page's search key is deliberately obscured),
- * so products are found in a name index built from its category pages
- * (../agent/othoba_index.py, same tables as Cartup's under othoba_*), and
- * each candidate's product page, which robots.txt allows, gives the live
- * price, stock and seller from its schema.org Product data.
+ * Othoba as an agent tool, searched live like Daraz: Othoba's own search
+ * page (/search?q= → /ts/search/...) is rendered on its server, so its
+ * results (product id, address, name, in Othoba's order) are in the HTML.
+ * robots.txt asks robots not to use it; the owner decided DorAI does, at one
+ * page per question (2026-11-03). Prices aren't in those results, so each
+ * candidate's product page gives the live price, stock and seller from its
+ * schema.org Product data. The page's search key is deliberately hidden and
+ * is not used.
+ *
+ * When the search page can't be read, the name index built from Othoba's
+ * category pages (../agent/othoba_index.py, othoba_* tables) answers instead.
  *
  * Only a handful of pages are fetched per question (MAX_PAGES), never a crawl.
  */
 
 import { type CartupLookup, searchIndex } from './cartup.ts'
-import { normalizeListing } from './normalize.ts'
+import { decodeEntities, normalizeListing } from './normalize.ts'
+import { foundWords, tokens } from './ranking.ts'
 import type { D1Database, Listing } from './types.ts'
 
 const MAX_PAGES = 4
@@ -76,14 +82,59 @@ export async function fetchProduct(slug: string): Promise<Listing | null> {
   return parseProductPage(await response.text(), slug)
 }
 
-/** Othoba listings for a product title, with live prices from their pages. */
+export interface SearchHit {
+  id: string
+  slug: string
+  name: string
+}
+
+// A result card: its product id, then the product's address and name in its heading.
+const HIT_RE = /data-productid="(\d+)"[\s\S]*?<h4 class="product-name">\s*<a href="\/([a-z0-9][a-z0-9-]*)"[^>]*>([\s\S]*?)<\/a>/g
+
+/** Othoba's search results page -> its hits, in Othoba's order, each once. */
+export function parseSearchPage(html: string): SearchHit[] {
+  const hits = new Map<string, SearchHit>()
+  for (const [, id, slug, name] of html.matchAll(HIT_RE)) {
+    if (!hits.has(id)) hits.set(id, { id, slug, name: decodeEntities(name.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim() })
+  }
+  return [...hits.values()]
+}
+
+export async function search(query: string): Promise<SearchHit[]> {
+  const response = await fetch(`${BASE}/search?q=${encodeURIComponent(query)}`, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
+  if (!response.ok) throw new Error(`Othoba search returned ${response.status}`)
+  return parseSearchPage(await response.text())
+}
+
+/**
+ * Which hits' product pages to read: the ones whose names hold most of the
+ * title's words (a seller's long title is searched as typed, and Othoba
+ * ranks loosely), Othoba's own order breaking ties.
+ */
+export function bestHits(hits: SearchHit[], title: string, limit = MAX_PAGES): SearchHit[] {
+  const want = [...new Set(tokens(title))]
+  const score = (h: SearchHit) => foundWords(want, h.name).length / (want.length || 1)
+  return hits
+    .map((h, i) => ({ h, i, s: score(h) }))
+    .sort((a, b) => b.s - a.s || a.i - b.i)
+    .slice(0, limit)
+    .map((x) => x.h)
+}
+
+const readPages = async (slugs: string[]) => (await Promise.all(slugs.map((s) => fetchProduct(s).catch(() => null)))).filter((l): l is Listing => l !== null)
+
+/** Othoba listings for a product title: its live search first, its name index if that fails. */
 export async function lookup(db: D1Database | undefined, title: string): Promise<CartupLookup> {
-  if (!db) return { status: 'no_index', listings: [], indexedAt: null }
+  const hits = await search(title).catch(() => null)
+  if (hits?.length) {
+    const listings = await readPages(bestHits(hits, title).map((h) => h.slug))
+    if (listings.length) return { status: 'found', listings, indexedAt: null }
+  }
+  if (!db) return { status: hits ? 'not_found' : 'error', listings: [], indexedAt: null }
   try {
     const { slugs, meta } = await searchIndex(db, title, 'othoba')
-    if (!meta) return { status: 'no_index', listings: [], indexedAt: null }
-    const pages = await Promise.all(slugs.slice(0, MAX_PAGES).map((s) => fetchProduct(s).catch(() => null)))
-    const listings = pages.filter((l): l is Listing => l !== null)
+    if (!meta) return { status: hits ? 'not_found' : 'no_index', listings: [], indexedAt: null }
+    const listings = await readPages(slugs.slice(0, MAX_PAGES))
     return { status: listings.length ? 'found' : 'not_found', listings, indexedAt: meta.built }
   } catch {
     return { status: 'error', listings: [], indexedAt: null }

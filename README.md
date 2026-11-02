@@ -6,6 +6,8 @@ Renamed from Price Pulse on 2026-11-02: [pricepulse.co.nz](https://www.pricepuls
 
 **Live at [dorai-bd.pages.dev](https://dorai-bd.pages.dev/).** It moved out of the [portfolio repo](https://github.com/Atikul-Dipto/Atikul-Dipto.github.io) into this one on 2026-11-02, with its history. The old address (`atikul-islam-portfolio.pages.dev/price-pulse/`) redirects here.
 
+**Docs:** [architecture](docs/ARCHITECTURE.md) (each box of the system diagram and where it lives) · [database schema](docs/SCHEMA.md) · [running it](docs/OPERATIONS.md) (deploys, secrets, Telegram setup, upkeep) · [design system](docs/DESIGN.md).
+
 ## Where shoppers use it
 
 - **The web page** ([dorai-bd.pages.dev](https://dorai-bd.pages.dev/)). Ask by name or need, as described below. Paste a Daraz or Cartup product link into the name box to compare that exact product.

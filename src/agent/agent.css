@@ -83,6 +83,8 @@
 .notes li::before { content: '›'; position: absolute; left: 2px; color: var(--plum); font-weight: 800; }
 .pick-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .pick-actions .btn-primary { flex: 1; }
+.not-this { display: block; margin: 10px 0 0; font-weight: 500; color: var(--muted); }
+.not-this.done { font-size: 13px; }
 .save-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
 .save-btn.saved { color: var(--purple); border-color: var(--plum); background: var(--tint-2); }
 .save-btn.saved svg { fill: var(--plum); stroke: var(--plum); }

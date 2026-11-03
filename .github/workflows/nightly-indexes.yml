@@ -1,0 +1,93 @@
+# Rebuilds DorAI's Cartup and Othoba name indexes in D1 every night
+# (docs/DATA_COLLECTION.md). No prices are collected here: search reads them
+# live; these indexes only lead a product's name to its page.
+#
+# Needs two repository secrets (docs/OPERATIONS.md, "Nightly indexes"):
+# CLOUDFLARE_API_TOKEN (Account · D1 · Edit) and CLOUDFLARE_ACCOUNT_ID.
+name: Nightly store indexes
+
+on:
+  schedule:
+    - cron: '0 20 * * *' # 02:00 in Dhaka
+  workflow_dispatch:
+    inputs:
+      stores:
+        description: Which index to rebuild
+        type: choice
+        options: [both, cartup, othoba]
+        default: both
+      dry_run:
+        description: Build and report only; upload nothing
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One rebuild at a time: both swap whole tables in D1.
+concurrency:
+  group: store-indexes
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+
+jobs:
+  cartup:
+    if: ${{ inputs.stores != 'othoba' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r agent/requirements-index.txt
+      - name: Cloudflare secrets are set
+        if: ${{ !inputs.dry_run }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to this repository's Actions secrets (docs/OPERATIONS.md)."
+            exit 1
+          fi
+      - name: Cartup name index (its product sitemaps, ~900k products)
+        run: python -m agent --index-cartup $DRY_RUN
+      - name: Cartup menu sections (a browser; the index doesn't depend on it)
+        if: ${{ !inputs.dry_run }}
+        continue-on-error: true
+        run: python -m agent --cartup-menu
+
+  othoba:
+    needs: cartup
+    if: ${{ always() && inputs.stores != 'cartup' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r agent/requirements-index.txt
+      - name: Cloudflare secrets are set
+        if: ${{ !inputs.dry_run }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to this repository's Actions secrets (docs/OPERATIONS.md)."
+            exit 1
+          fi
+      # Earlier crawls' finds, kept for products one crawl misses (agent/othoba_index.py).
+      - uses: actions/cache@v4
+        with:
+          path: data/othoba/slugs.json
+          key: othoba-slugs-${{ github.run_id }}
+          restore-keys: othoba-slugs-
+      - name: Othoba name index (its category pages, one a second, ~2 hours)
+        run: python -m agent --index-othoba $DRY_RUN

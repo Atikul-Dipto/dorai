@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLang } from '../i18n.js'
 import { askAgent, compareLink } from './api.js'
+import { track } from './events.js'
 import { money } from './format.js'
 import { STORE_LABEL, STORE_LINK } from './stores.js'
 import { useWatchlist } from './watchlist.js'
@@ -219,12 +220,16 @@ function trustLine(listing) {
   return ' · no ratings yet'
 }
 
-function SaveButton({ listing }) {
+function SaveButton({ listing, query }) {
   const { t } = useLang()
   const watchlist = useWatchlist()
   const saved = watchlist.has(listing.itemId)
+  const toggle = () => {
+    watchlist.toggle(listing)
+    track(saved ? 'unsave' : 'save', { query, listing })
+  }
   return (
-    <button type="button" className={`btn btn-ghost save-btn${saved ? ' saved' : ''}`} aria-pressed={saved} onClick={() => watchlist.toggle(listing)}>
+    <button type="button" className={`btn btn-ghost save-btn${saved ? ' saved' : ''}`} aria-pressed={saved} onClick={toggle}>
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z" />
       </svg>
@@ -233,8 +238,27 @@ function SaveButton({ listing }) {
   )
 }
 
+/** "Not what I was looking for": a learning event, thanked once. */
+function NotThis({ query, listing }) {
+  const { t } = useLang()
+  const [sent, setSent] = useState(false)
+  if (sent) return <p className="not-this done">{t.notThisThanks}</p>
+  return (
+    <button
+      type="button"
+      className="btn-link not-this"
+      onClick={() => {
+        track('not_this', { query, listing })
+        setSent(true)
+      }}
+    >
+      {t.notThis}
+    </button>
+  )
+}
+
 /** One store's recommended option: its own pick, never compared away. */
-function StorePick({ store }) {
+function StorePick({ store, query }) {
   const { t } = useLang()
   const { recommended: result, why, label, site } = store
   const { listing, history, bestVoucher, finalPrice } = result
@@ -298,26 +322,32 @@ function StorePick({ store }) {
       )}
 
       <div className="pick-actions">
-        <a className="btn btn-primary" href={listing.url} target="_blank" rel="noreferrer">
+        <a className="btn btn-primary" href={listing.url} target="_blank" rel="noreferrer" onClick={() => track('open', { query, listing })}>
           {t.open(label)}
         </a>
-        <SaveButton listing={listing} />
+        <SaveButton listing={listing} query={query} />
       </div>
+      <NotThis key={listing.itemId} query={query} listing={listing} />
     </article>
   )
 }
 
 /** One store's other matches, each matched to the product: its other sellers, other sizes, then close matches. */
-function StoreMatches({ store, named }) {
+function StoreMatches({ store, named, query }) {
   const { t } = useLang()
   if (!store.matches.length) return null
   return (
     <div className="store-matches">
       <h4>{named ? t.moreOn(store.label) : t.alsoOn(store.label)}</h4>
       <ul>
-        {store.matches.map((r) => (
+        {store.matches.map((r, i) => (
           <li key={r.listing.itemId}>
-            <a href={r.listing.url} target="_blank" rel="noreferrer">
+            <a
+              href={r.listing.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => track('open', { query, listing: r.listing, slot: 'match', relation: r.relation, position: i + 1 })}
+            >
               <b className={`relation ${r.relation}`}>{r.label}</b>
               <span className="other-name">{r.listing.name}</span>
               {r.listing.alsoNamed && <span className="other-aka">in {store.label}'s search as “{r.listing.alsoNamed}”</span>}
@@ -343,7 +373,7 @@ function StoreMatches({ store, named }) {
 }
 
 /** One store's whole answer. Each store gets one of these, side by side. */
-function StoreSection({ store, named }) {
+function StoreSection({ store, named, query }) {
   const { t } = useLang()
   const count = (store.recommended ? 1 : 0) + store.matches.length
   return (
@@ -357,9 +387,9 @@ function StoreSection({ store, named }) {
           </a>
         )}
       </header>
-      {store.recommended ? <StorePick store={store} /> : <p className="store-empty">{store.note}</p>}
+      {store.recommended ? <StorePick store={store} query={query} /> : <p className="store-empty">{store.note}</p>}
       {store.recommended && store.note && <p className="store-empty">{store.note}</p>}
-      <StoreMatches store={store} named={named} />
+      <StoreMatches store={store} named={named} query={query} />
       {store.site === 'daraz' && store.recommended && <VoucherChecks checks={store.recommended.vouchers} />}
     </section>
   )
@@ -387,7 +417,7 @@ function Answer({ answer }) {
 
       <div className="stores-grid" style={{ '--stores': stores.length }}>
         {stores.map((s) => (
-          <StoreSection key={s.site} store={s} named={named} />
+          <StoreSection key={s.site} store={s} named={named} query={answer.query} />
         ))}
       </div>
 

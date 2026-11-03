@@ -1,6 +1,6 @@
 # D1 schema (`price-pulse`)
 
-Migrations: `worker/migrations/0001_init.sql`, `0002_architecture.sql`, `0003_matching_engine.sql`.
+Migrations: `worker/migrations/0001_init.sql`, `0002_architecture.sql`, `0003_matching_engine.sql`, `0004_interactions.sql`.
 
 | Table | Role in the architecture | Rows written by |
 |---|---|---|
@@ -13,11 +13,12 @@ Migrations: `worker/migrations/0001_init.sql`, `0002_architecture.sql`, `0003_ma
 | `alerts` | Price-drop alerts sent, and each channel's outcome | scheduled jobs, `/api/pp/push` (test) |
 | `telegram_links` | One-time codes linking a device to a Telegram chat (a day at most) | `/api/pp/telegram-link`, webhook |
 | `tasks` | **Task queue**: `check_price` per watched product | watchlist service, scheduled jobs |
-| `rate_limits` | Fixed-window counters for write endpoints, by salted hash | `/api/pp/device`, `/watchlist`, `/push` |
+| `rate_limits` | Fixed-window counters for write endpoints, by salted hash | `/api/pp/device`, `/watchlist`, `/push`, `/events` |
 | `vouchers` | Public Daraz vouchers | voucher harvester on the PC |
 | `asks` | Each question's outcome and timings (no visitor data) | `/api/pp/ask`, `/compare` |
-| `cartup_docs`, `cartup_postings`, `cartup_meta` | Cartup name index (sharded, compressed) and its menu | `python -m agent --index-cartup` |
-| `othoba_docs`, `othoba_postings`, `othoba_meta` | Othoba name index | `python -m agent --index-othoba` |
+| `interactions` | **Learning events**: what shoppers did with an answer (open · save · unsave · not_this), on which offer, pick or "More" row, its relation and position, the price shown, the canonical product then (no visitor data) | `/api/pp/events` |
+| `cartup_docs`, `cartup_postings`, `cartup_meta` | Cartup name index (sharded, compressed) and its menu | `python -m agent --index-cartup` (nightly on GitHub Actions) |
+| `othoba_docs`, `othoba_postings`, `othoba_meta` | Othoba name index | `python -m agent --index-othoba` (nightly on GitHub Actions) |
 
 Key relationships: `listings.product_id → products.id`;
 `watches.device_id`, `alerts.device_id`, `telegram_links.device_id →

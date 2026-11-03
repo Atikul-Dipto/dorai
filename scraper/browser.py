@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -16,6 +18,10 @@ def make_driver(headless: bool) -> webdriver.Chrome:
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--lang=en-US")
     options.add_argument("--disable-gpu")
+    if os.environ.get("CI"):
+        # GitHub's Ubuntu runners (the nightly index job) block Chrome's sandbox.
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"

@@ -6,7 +6,7 @@ Renamed from Price Pulse on 2026-11-02: [pricepulse.co.nz](https://www.pricepuls
 
 **Live at [dorai-bd.pages.dev](https://dorai-bd.pages.dev/).** It moved out of the [portfolio repo](https://github.com/Atikul-Dipto/Atikul-Dipto.github.io) into this one on 2026-11-02, with its history. The old address (`atikul-islam-portfolio.pages.dev/price-pulse/`) redirects here.
 
-**Docs:** [architecture](docs/ARCHITECTURE.md) (each box of the system diagram and where it lives) · [database schema](docs/SCHEMA.md) · [running it](docs/OPERATIONS.md) (deploys, secrets, Telegram setup, upkeep) · [design system](docs/DESIGN.md).
+**Docs:** [architecture](docs/ARCHITECTURE.md) (each box of the system diagram and where it lives) · [API](docs/API.md) · [data collection](docs/DATA_COLLECTION.md) (what is read from each store, how often, the lines kept) · [database schema](docs/SCHEMA.md) · [running it](docs/OPERATIONS.md) (deploys, secrets, nightly indexes, Telegram setup) · [design system](docs/DESIGN.md) · [changelog](docs/CHANGELOG.md).
 
 ## Where shoppers use it
 

@@ -11,13 +11,14 @@ import { runJobs } from '../jobs/index.ts'
 import { run } from './agent.ts'
 import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
+import { readInteraction, recordInteractions, summarizeInteractions } from './interactions.ts'
 import { recordListings } from './store.ts'
 import type { D1Database, D1Statement, Listing } from './types.ts'
 import { dropWorthTelling, putWatches, readWatch } from './watchlist.ts'
 
 function freshDb(): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(':memory:')
-  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
+  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
   // Plain objects, as D1 returns (node:sqlite's rows have no prototype).
   const plain = (row: unknown) => (row ? { ...(row as object) } : null)
   const statement = (sql: string, params: unknown[] = []): D1Statement => ({
@@ -51,6 +52,27 @@ test('rate limits count per window', async () => {
   assert.equal(await allow(db, 'k', 2, 3600, now), true)
   assert.equal(await allow(db, 'k', 2, 3600, now), false)
   assert.equal(await allow(db, 'k', 2, 3600, new Date('2026-11-03T11:00:00Z')), true)
+})
+
+test('learning events: only real acts on real offers are kept, each with its canonical product, and summed up for the owner', async () => {
+  const { db, raw } = freshDb()
+  const at = '2026-11-03T05:00:00Z'
+  await recordListings(db, [{ ...listing('111', 'daraz', 'Awei T50 Wireless Earbuds', 1100), brand: 'Awei' }], at)
+  await matchNewListings(db, at, 10)
+  const event = { kind: 'open', query: 'Awei T50', itemId: '111', site: 'daraz', slot: 'pick', price: 1100 }
+  assert.equal(readInteraction({ ...event, kind: 'buy' }), null)
+  assert.equal(readInteraction({ ...event, site: 'amazon' }), null)
+  assert.equal(readInteraction({ ...event, itemId: "1'; DROP TABLE x" }), null)
+  // A pick is position 0 with no relation, whatever the page sent.
+  assert.deepEqual(readInteraction({ ...event, relation: 'close', position: 4 }), { ...event, relation: null, position: 0 })
+  const row = readInteraction({ ...event, slot: 'match', relation: 'variant', position: 2 })!
+  await recordInteractions(db, [readInteraction(event)!, row, readInteraction({ ...event, kind: 'not_this' })!], at)
+  const stored = raw.prepare('SELECT kind, product_id FROM interactions ORDER BY id').all() as { kind: string; product_id: number | null }[]
+  assert.deepEqual(stored.map((s) => s.kind), ['open', 'open', 'not_this'])
+  assert.ok(stored.every((s) => s.product_id !== null))
+  const summary = await summarizeInteractions(db, '2026-11-01T00:00:00Z')
+  assert.deepEqual(summary.counts, { not_this: 1, open: 2 })
+  assert.equal((summary.notWanted[0] as { query: string }).query, 'Awei T50')
 })
 
 test('a watch needs a real store product address', () => {

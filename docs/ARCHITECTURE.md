@@ -68,7 +68,7 @@ flowchart TB
 |---|---|---|
 | Customer / Browser / Mobile | `src/`, `extension/`, `public/manifest.webmanifest` | The page; the installable app, which takes Android shares from the stores' apps; the Chrome/Edge/Firefox extension on product pages. |
 | Frontend | Cloudflare Pages project `dorai-bd` | Static React build (`npm run deploy`). |
-| API layer | `functions/api/pp/` | `ask` (search), `compare` (a product link on every store), `vouchers`, `stats`, `device`, `watchlist`, `push`, `alerts`, `telegram-link`, `telegram-webhook`. |
+| API layer | `functions/api/pp/` | `ask` (search), `compare` (a product link on every store), `vouchers`, `stats`, `events`, `review`, `device`, `watchlist`, `push`, `alerts`, `telegram-link`, `telegram-webhook`. See `docs/API.md`. |
 | Search orchestrator | `worker/agent.ts`, `worker/compare.ts` | Runs one request: reads it, searches the stores in parallel, ranks, matches, compares, remembers, answers with per-step timings. |
 | AI query understanding | `worker/intent.ts` | Product name vs description (`readsAsDescription`, `namesAProduct`); descriptions, Bangla and budgets go to Workers AI (free 10k neurons/day, rules when it's used up). |
 | Product matching engine | `worker/catalog.ts` (catalogue), `worker/matching.ts` + `worker/ranking.ts` (live) | Two halves. The catalogue matches every stored listing to one canonical product, stage by stage (below), in the scheduled jobs. The live half judges same product / other size / close match while an answer is being made, in milliseconds. |
@@ -82,6 +82,8 @@ flowchart TB
 | Data layer | D1 `price-pulse`, schema in `worker/migrations/` | Plays the diagram's PostgreSQL role (kept on D1 by choice: free, already holds the data, no extra service). See `docs/SCHEMA.md`. |
 | Price history | D1 `price_history` | A point per listing when the price changes or the last point is >6h old; written by every answer and every scheduled check. |
 | Search & price cache | `worker/cache.ts` (Cache API) | Comparisons 6 hours, identical searches 15 minutes; never an answer where a store couldn't be reached. |
+| Learning events | `worker/interactions.ts`, `/api/pp/events`, `src/agent/events.js` | What shoppers do with an answer: open an offer at its store, save or unsave it, or say a pick is "not what I was looking for". Each event holds the search, the offer, pick or "More" row, its relation and position, the price and canonical product; no visitor information. Recorded only, so far: ranking will learn from them once there are enough. |
+| Index builders (PC + nightly) | `agent/cartup_index.py`, `agent/othoba_index.py`, `.github/workflows/nightly-indexes.yml` | Rebuild the Cartup and Othoba name indexes in D1 every night on GitHub Actions; see `docs/DATA_COLLECTION.md`. |
 
 ## Search: one question, step by step
 

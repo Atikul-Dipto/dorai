@@ -53,11 +53,29 @@ same title from other sellers (the page reloads), and that title arriving
 later follows it. The page's top line shows how the catalogue stands
 (matched automatically, by you, new products, waiting).
 
-## Weekly upkeep (on this PC)
+## Nightly indexes (GitHub Actions)
+
+`.github/workflows/nightly-indexes.yml` rebuilds the Cartup and Othoba name
+indexes at 02:00 Dhaka every night (docs/DATA_COLLECTION.md). It needs two
+repository secrets (GitHub → the `dorai` repo → Settings → Secrets and
+variables → Actions):
+
+| Secret | What |
+|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account's id (`npx wrangler whoami`). |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare → My Profile → API Tokens → Create Token → Custom token: permission **Account · D1 · Edit**, account resources: this account. Nothing else. |
+
+Run it by hand from the repo's Actions tab ("Run workflow": both stores or
+one, optionally a dry run that uploads nothing) or with
+`gh workflow run nightly-indexes.yml -f stores=cartup -f dry_run=true`.
+A failed night leaves the last good index in place.
+
+## By hand (on this PC)
 
 ```powershell
-.venv\Scripts\python.exe -m agent --index-cartup     # Cartup name index + its menu
-.venv\Scripts\python.exe -m agent --index-othoba     # Othoba name index (~20 min)
+.venv\Scripts\python.exe -m agent --index-cartup     # Cartup name index (also nightly on GitHub)
+.venv\Scripts\python.exe -m agent --cartup-menu      # Cartup's menu sections (also nightly)
+.venv\Scripts\python.exe -m agent --index-othoba     # Othoba name index, ~2 hours (also nightly)
 .venv\Scripts\python.exe -m agent --harvest-vouchers --push-d1   # around sales
 ```
 
@@ -72,4 +90,8 @@ npx wrangler d1 execute price-pulse --remote --command "SELECT kind, key, status
 npx wrangler d1 execute price-pulse --remote --command "SELECT created_at, name, old_price, new_price, push_status, telegram_status FROM alerts ORDER BY id DESC LIMIT 20"
 # The jobs Worker's own log, live
 npx wrangler tail dorai-jobs
+# Learning events, summed up (last 7 days; ADMIN_TOKEN from .dev.vars)
+curl -H "authorization: Bearer $ADMIN_TOKEN" "https://dorai-bd.pages.dev/api/pp/events?days=7"
+# ...or raw
+npx wrangler d1 execute price-pulse --remote --command "SELECT at, kind, query, site, slot, relation, position, price FROM interactions ORDER BY id DESC LIMIT 30"
 ```

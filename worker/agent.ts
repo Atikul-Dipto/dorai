@@ -8,10 +8,16 @@
  *                                       "what do you need" text goes to Workers AI (~1.5s)
  *   search      daraz.search            ~0.7s, live (the name and the item type in parallel)
  *               cartup.lookup/browse    alongside: its name index + product pages, or its category pages
+ *               othoba.lookup           alongside: its live search page, its name index behind it
+ *               catalog.findProducts    alongside: DorAI's own canonical products for a named product
  *   scope       productCategory+search  only when Daraz's results are mostly noise (~1s)
  *   cartup      cartup.enrich           product pages for the Cartup listings about to be shown
+ *   catalogue   STORES[site].current    the named product's known offers that live search missed, read again
  *   remember    store.lookupHistory     the price last seen, read before this one is recorded
  *   check       eligibility.checkAll    published voucher terms, pure arithmetic
+ *
+ * Around it, /api/pp/ask checks the cache first and keeps the answer after
+ * (docs/ARCHITECTURE.md, "Search").
  *
  * Every store gets its own answer (StoreAnswer): its recommended option and
  * why, then its matches. No store's pick is pushed over another's — where
@@ -19,6 +25,7 @@
  */
 
 import * as cartup from './cartup.ts'
+import { type CatalogProduct, findProducts } from './catalog.ts'
 import * as daraz from './daraz.ts'
 import * as othoba from './othoba.ts'
 import { bestOffer, closestFirst, compareAcross, firstOffer, needWhy, recommendHere, type Result, type StoreAnswer, type StoreMatch, summarize } from './comparison.ts'
@@ -27,6 +34,7 @@ import { buildIntent, coreQuery, describeQuery, parseIntent } from './intent.ts'
 import { matchRows, relations, type Row, sameProduct, samePicks, sharedPick } from './matching.ts'
 import { mainModel, rank } from './ranking.ts'
 import * as store from './store.ts'
+import { STORES } from './stores.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
 
 // The engines this orchestrator drives, re-exported for the compare service and the tests.
@@ -56,6 +64,9 @@ export interface Answer {
   vouchersKnown: number
   vouchersHarvestedAt: string | null
   database: 'ok' | 'unavailable' | 'not needed'
+  // The canonical product DorAI's catalogue knows a named product as, and the
+  // offers in this answer it vouched for (each priced live, here).
+  catalogue: { productId: number; name: string; confirmed: string[] } | null
   caveats: string[]
   timingsMs: Record<string, number>
 }
@@ -120,6 +131,8 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   const kinds = named ? namedKinds(intent.searchQuery) : [intent.refinedQuery, intent.productType, intent.searchQuery].filter((k): k is string => Boolean(k))
   const cartupLookup = cartup.lookup(db, intent.searchQuery)
   const othobaLookup = othoba.lookup(db, intent.searchQuery)
+  // DorAI's own catalogue, alongside the stores: what it already knows the named product is, on every store.
+  const catalogFind: Promise<CatalogProduct[]> = named && db ? findProducts(db, intent.searchQuery).catch(() => []) : Promise.resolve([])
   const cartupBrowse = kinds.length ? cartup.browse(db, kinds) : Promise.resolve(null)
   // Daraz sometimes answers with a bot check instead of results; Cartup still answers then.
   let darazDown = false
@@ -216,6 +229,41 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   const othobaPool = unique([...othobaFound.listings, ...(othobaPickFound?.listings ?? []).filter((l) => ['same', 'variant'].includes(toDarazPick(l) ?? ''))])
   const othobaRanked = named ? [] : rank(othobaPool, intent, RESULT_LIMIT).ranked
   lap('othoba')
+
+  // ---- DorAI's catalogue: the named product's offers it already knows ----
+  // An offer live search returned but didn't judge the same (a retitled copy,
+  // a match a person approved) is the same; on a store where live search found
+  // none, the known offer is read again now. No price is taken from memory.
+  const known = (await catalogFind)[0] ?? null
+  const confirmed: string[] = []
+  if (known) {
+    const sameOn: Record<Listing['site'], Listing[]> = { daraz: ranked, cartup: cartupSame, othoba: othobaSame }
+    const poolOf: Record<Listing['site'], Listing[]> = { daraz: darazAll, cartup: cartupPool, othoba: othobaPool }
+    const vouch = (site: Listing['site'], l: Listing) => {
+      if (!sameOn[site].some((s) => s.itemId === l.itemId)) sameOn[site].push(l)
+      if (!poolOf[site].some((s) => s.itemId === l.itemId)) poolOf[site].push(l)
+      confirmed.push(l.itemId)
+    }
+    const rereads: Promise<void>[] = []
+    for (const site of ['daraz', 'cartup', 'othoba'] as const) {
+      const offers = known.offers.filter((o) => o.site === site)
+      for (const o of offers) {
+        const live = poolOf[site].find((l) => l.itemId === o.itemId)
+        if (live) vouch(site, live)
+      }
+      const first = offers[0]
+      if (first && !sameOn[site].length && !(site === 'daraz' && darazDown)) {
+        rereads.push(
+          STORES[site]
+            .current({ itemId: first.itemId, url: first.url, name: first.name }, env)
+            .then((l) => (l ? vouch(site, l) : undefined))
+            .catch(() => undefined),
+        )
+      }
+    }
+    await Promise.all(rereads)
+    lap('catalogue')
+  }
 
   // ---- each store's "More" rows, matched to the product ----
   const needRows = (pick: Listing | null, pool: Listing[], other: { label: string; listing: Listing } | null, fits: Listing[]) =>
@@ -396,6 +444,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     vouchersKnown: vouchers.length,
     vouchersHarvestedAt: harvestedAt,
     database,
+    catalogue: known && { productId: known.id, name: known.name, confirmed: [...new Set(confirmed)] },
     caveats: CAVEATS,
     timingsMs: timings,
   }

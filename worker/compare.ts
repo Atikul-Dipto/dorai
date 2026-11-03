@@ -17,18 +17,14 @@ import * as daraz from './daraz.ts'
 import * as othoba from './othoba.ts'
 import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { coreQuery } from './intent.ts'
+import { type ProductRef, readProductUrl } from './links.ts'
 import { mainModel } from './ranking.ts'
 import * as store from './store.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
 
-const CACHE_SECONDS = 6 * 3600
+export { type ProductRef, readProductUrl } from './links.ts'
 
-export interface ProductRef {
-  site: Listing['site']
-  itemId: string // as the agent keys it: Daraz's item id, "cartup:<id>"
-  slug: string
-  url: string
-}
+const CACHE_SECONDS = 6 * 3600
 
 export interface Comparison {
   source: Result // the product being looked at, as its store sells it
@@ -39,27 +35,7 @@ export interface Comparison {
   unreachable: Listing['site'][] // stores that couldn't be checked this time: nothing is claimed about them
 }
 
-const DARAZ_PRODUCT = /daraz\.com\.bd\/products\/([^?#\s]*?)-i(\d+)(?:-s\d+)?\.html/i
-const CARTUP_PRODUCT = /cartup\.com\/product\/([^?#\s/"'<>]+)/i
-// Othoba's product pages sit at the top level, like its categories ("/fresh-fortified-soyebean-oil-5ltr-2");
-// which one it is shows when the page is read (a category has no product data).
-const OTHOBA_PAGE = /othoba\.com\/([a-z0-9][a-z0-9-]*)\/?(?=[?#\s"'<>]|$)/i
 const ANY_URL = /https?:\/\/[^\s"'<>]+/gi
-
-/** A Daraz, Cartup or Othoba product page's address, from a URL or the text an app shares ("I found this on Daraz! https://..."). */
-export function readProductUrl(text: string): ProductRef | null {
-  const d = DARAZ_PRODUCT.exec(text)
-  if (d) return { site: 'daraz', itemId: d[2], slug: d[1], url: `https://www.daraz.com.bd/products/${d[1]}-i${d[2]}.html` }
-  const c = CARTUP_PRODUCT.exec(text)
-  if (c) {
-    const slug = decodeURIComponent(c[1])
-    const id = /[_-](\d{9,})[_-][a-z0-9]+$/.exec(slug)?.[1] ?? slug
-    return { site: 'cartup', itemId: `cartup:${id}`, slug, url: `https://www.cartup.com/product/${slug}` }
-  }
-  const o = OTHOBA_PAGE.exec(text)
-  if (o) return { site: 'othoba', itemId: `othoba-page:${o[1]}`, slug: o[1], url: `${othoba.BASE}/${o[1]}` }
-  return null
-}
 
 /**
  * A short link shared from an app ("https://s.daraz.com.bd/s.ZEAe") leads to

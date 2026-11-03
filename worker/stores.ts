@@ -8,7 +8,7 @@
  */
 
 import * as cartup from './cartup.ts'
-import { readProductUrl } from './compare.ts'
+import { readProductUrl } from './links.ts'
 import * as daraz from './daraz.ts'
 import { coreQuery } from './intent.ts'
 import * as othoba from './othoba.ts'

@@ -8,7 +8,8 @@ import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
 import { runJobs } from '../jobs/index.ts'
-import { confidence, decideReview, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
+import { run } from './agent.ts'
+import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
 import { recordListings } from './store.ts'
 import type { D1Database, D1Statement, Listing } from './types.ts'
@@ -141,6 +142,52 @@ test('the matching pipeline over the database: link, new product, review, and th
   // A renamed listing is matched again.
   await recordListings(db, [offer('cartup:3', 'cartup', 'Farmland Full Cream Milk Powder 1kg Tin', 'Farmland')], at(9))
   assert.equal((raw.prepare("SELECT match_status FROM listings WHERE item_id = 'cartup:3'").get() as { match_status: string | null }).match_status, null)
+})
+
+test('search finds relevant products in the catalogue, and reads the offers live search missed again', async () => {
+  const { db } = freshDb()
+  const awei = 'Awei T50 Wireless Headphones Bluetooth 5.3 Earbuds With Mic'
+  const at = '2026-11-03T01:00:00Z'
+  await recordListings(
+    db,
+    [
+      { ...listing('111', 'daraz', awei, 1100), url: 'https://www.daraz.com.bd/products/awei-t50-i111.html', brand: 'Awei' },
+      { ...listing('othoba:826386', 'othoba', awei, 1250), url: 'https://othoba.com/awei-t50-wireless-826386', brand: 'Awei' },
+      { ...listing('d2', 'daraz', 'Starship Full Cream Milk Powder - 1kg', 900), brand: 'Starship' },
+    ],
+    at,
+  )
+  await matchNewListings(db, at, 10)
+
+  // A typed name is a product here when it says its brand and leaves no choice open.
+  const [found] = await findProducts(db, 'Awei T50')
+  assert.deepEqual(found.offers.map((o) => o.itemId).sort(), ['111', 'othoba:826386'])
+  assert.deepEqual(await findProducts(db, 'T50 earbuds'), [])
+  assert.equal((await findProducts(db, 'Starship milk powder 1kg')).length, 1)
+  assert.deepEqual(await findProducts(db, 'Starship milk powder'), [])
+
+  // Othoba's search page shows nothing for it today; the catalogue knows its page, read again now.
+  const real = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input)
+    if (url.startsWith('https://www.daraz.com.bd/catalog')) return Response.json({ mods: { listItems: [{ itemId: '111', name: awei, price: '1100', itemUrl: '//www.daraz.com.bd/products/awei-t50-i111.html' }] } })
+    if (url.startsWith('https://othoba.com/search')) return new Response('<html>No products were found</html>')
+    if (url === 'https://othoba.com/awei-t50-wireless-826386') {
+      const ld = { '@type': 'Product', name: awei, id: '826386', offers: { price: '1199', availability: 'http://schema.org/InStock' } }
+      return new Response(`<script type="application/ld+json">${JSON.stringify(ld)}</script>`)
+    }
+    return new Response('', { status: 404 })
+  }) as typeof fetch
+  try {
+    const answer = await run({ name: 'Awei T50' }, { PP_DB: db })
+    const othoba = answer.stores.find((s) => s.site === 'othoba')!
+    assert.equal(othoba.recommended?.listing.itemId, 'othoba:826386')
+    assert.equal(othoba.recommended?.listing.price, 1199) // read live, not the ৳1,250 remembered
+    assert.equal(answer.catalogue?.name, awei)
+    assert.deepEqual(answer.catalogue?.confirmed.sort(), ['111', 'othoba:826386'])
+  } finally {
+    globalThis.fetch = real
+  }
 })
 
 test('scheduled jobs: a watched product is checked, its drop recorded and pushed once', async () => {

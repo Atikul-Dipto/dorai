@@ -4,7 +4,7 @@
  * price drop is worth telling.
  */
 
-import { readProductUrl } from './compare.ts'
+import { readProductUrl } from './links.ts'
 import { enqueue } from './queue.ts'
 import type { D1Database, Listing } from './types.ts'
 

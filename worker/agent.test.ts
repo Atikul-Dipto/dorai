@@ -8,7 +8,7 @@ import { bestOffer, compareAcross, evidence, matchRows, photoId, recommendHere, 
 import { decodeIds, fnv1a, likeDaraz, parseCategoryPage, parseProductPage, pickCategories, requiredWords } from './cartup.ts'
 import { bestVoucher, campaignName, check, checkAll } from './eligibility.ts'
 import { buildIntent, cleanSearchQuery, coreQuery, describeQuery, groundedPrice, namesAProduct, parseRules, queryNumbers, readsAsDescription, restoreModelNumbers } from './intent.ts'
-import { foundWords, isBundle, missingWords, modelTokens, quantities, rank, storageOf, tokens, trusted, variantsOf } from './ranking.ts'
+import { foundWords, holdsCode, isBundle, missingWords, modelTokens, quantities, rank, storageOf, tokens, trusted, variantsOf } from './ranking.ts'
 import type { Intent, Listing, Voucher } from './types.ts'
 
 const CAMPAIGN = 'https://pages.daraz.com.bd/wow/gcp/route/daraz/bd/upr/router?wh_pid=%2Flazada%2Fchannel%2Fbd%2Fweekly-campaigns%2FbKashChoice'
@@ -138,6 +138,21 @@ test('the named product comes first; other sellers stay, other models move to al
   assert.deepEqual(ranked.slice(1).map((l) => l.price), [1510, 1525, 1650])
   assert.ok(!ranked.some((l) => /KL68|K500|WS681/.test(l.name)))
   assert.ok(alternatives.some((l) => l.name.includes('KL68')))
+})
+
+test('a model code is never inside a longer number: a T500 treadmill is not the Awei T50', () => {
+  // Daraz's 40 results for "Awei T50" (2026-11-03) held no Awei T50; two treadmills became "the product".
+  const { ranked } = rank(
+    [listing('New Umay T500MM Multifunction foldable motorized treadmill', 49500), listing('China BRAND MODEL T500 2.0 CHP.USER CAPACITY 100KG', 46000), listing('Awei T50 Wireless Headphones Bluetooth 5.3 Earbuds With Mic', 1100)],
+    product('Awei T50'),
+  )
+  assert.deepEqual(ranked.map((l) => l.price), [1100])
+  assert.equal(relations('Awei T50')(listing('China BRAND MODEL T500 2.0', 46000)), null)
+  // A code still ends where a word does, or before letters.
+  assert.ok(holdsCode('Samsung Galaxy A36 5G 8/256GB', 'a36'))
+  assert.ok(holdsCode('Apple iPhone 15 Pro Max', 'iphone15'))
+  assert.ok(holdsCode('Sony WH-1000XM5 Headphones', 'wh1000xm5'))
+  assert.ok(!holdsCode('Jedel KL699 Keyboard', 'kl69'))
 })
 
 const asResult = (l: Listing): Result => ({ listing: l, history: null, vouchers: [], bestVoucher: null, finalPrice: l.price, hints: [] })

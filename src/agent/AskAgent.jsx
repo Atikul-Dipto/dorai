@@ -408,8 +408,10 @@ function Answer({ answer }) {
             </i>
           ))}
           {answer.timingsMs.cartup != null && <i>cartup {seconds(answer.timingsMs.cartup)}</i>}
+          {answer.timingsMs.catalogue != null && <i>catalogue {seconds(answer.timingsMs.catalogue)}</i>}
           {answer.timingsMs.scope != null && <i>narrow down {seconds(answer.timingsMs.scope)}</i>}
         </span>
+        {answer.cached && <span>{t.fromCache}</span>}
       </footer>
 
       <details className="caveats">

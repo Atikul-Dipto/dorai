@@ -11,12 +11,14 @@
  * It runs in the scheduled jobs (jobs/index.ts), a batch of unprocessed
  * listings per run; a listing whose name changes is processed again. Answers
  * don't wait for it: they match live (matching.ts) in a couple of seconds.
+ * Search asks it what a named product is (findProducts), for the offers it
+ * already knows on every store.
  */
 
 import { COLOURS, photoFile, SALES_TALK, STOP, UNBRANDED } from './matching.ts'
 import { cleanText } from './normalize.ts'
-import { amountOf, isBundle, isNetworkGen, modelTokens, QUANTITY_RE, storageOf, tokens, variantsOf } from './ranking.ts'
-import type { D1Database } from './types.ts'
+import { amountOf, holdsCode, isBundle, isNetworkGen, modelTokens, QUANTITY_RE, storageOf, tokens, variantsOf } from './ranking.ts'
+import type { D1Database, Listing } from './types.ts'
 
 /** A listing as the catalogue reads it from D1 `listings`. */
 export interface StoredListing {
@@ -181,8 +183,10 @@ const jaccard = (a: string[], b: string[]) => {
  * the reasons. A hard conflict (another brand, model, size, storage,
  * variant, network, dimensions, strength or volume, or a bundle against a
  * single item) is 0: those are other products, however alike the words.
+ * `typed`: `a` is what a shopper typed, not a listing — they type fewer words
+ * than sellers, so the words count by how much of it `b`'s title holds.
  */
-export function confidence(a: Parsed, b: Parsed, samePhoto = false): { score: number; reasons: string[] } {
+export function confidence(a: Parsed, b: Parsed, samePhoto = false, typed = false): { score: number; reasons: string[] } {
   const reasons: string[] = []
   const aTokens = a.title.split(' ')
   const bTokens = b.title.split(' ')
@@ -190,7 +194,7 @@ export function confidence(a: Parsed, b: Parsed, samePhoto = false): { score: nu
   const brand = !a.brand || !b.brand ? 'unknown' : a.brand === b.brand || brandIn(a.brand, bTokens) || brandIn(b.brand, aTokens) ? 'same' : 'different'
   if (brand === 'different') return { score: 0, reasons: [`different brand (${a.brand} / ${b.brand})`] }
   const model =
-    a.model && b.model ? (a.model === b.model ? 'same' : 'different') : a.model || b.model ? (bTokens.join('').includes(a.model ?? '\0') || aTokens.join('').includes(b.model ?? '\0') ? 'held' : 'one') : 'none'
+    a.model && b.model ? (a.model === b.model ? 'same' : 'different') : a.model || b.model ? (holdsCode(b.title, a.model ?? '') || holdsCode(a.title, b.model ?? '') ? 'held' : 'one') : 'none'
   if (model === 'different') return { score: 0, reasons: [`different model (${a.model} / ${b.model})`] }
   const [x, y] = [a.specs, b.specs]
   if (x.size.length && y.size.length && x.size.join('+') !== y.size.join('+')) return { score: 0, reasons: [`different size (${x.size.join(', ')} / ${y.size.join(', ')})`] }
@@ -213,8 +217,8 @@ export function confidence(a: Parsed, b: Parsed, samePhoto = false): { score: nu
   // Docking Station" is the Awei T50. Without a code, the same brand, all the same words and size is.
   if (model === 'same') add(0.5, `same model (${a.model})`)
   else if (model === 'held') add(0.3, 'model code in the other title')
-  const overlap = jaccard(a.words, b.words)
-  add(overlap * (model === 'same' ? 0.2 : 0.45), `${Math.round(overlap * 100)}% of the words in common`)
+  const overlap = typed ? aTokens.filter((t) => bTokens.includes(t)).length / (aTokens.length || 1) : jaccard(a.words, b.words)
+  add(overlap * (model === 'same' ? 0.2 : 0.45), typed ? `${Math.round(overlap * 100)}% of the words typed` : `${Math.round(overlap * 100)}% of the words in common`)
   if ((x.size.length && y.size.length) || (x.storage !== null && y.storage !== null) || (x.dims.length && y.dims.length)) add(0.1, 'same size')
   if (a.title === b.title && aTokens.length >= 5) add(0.25, 'identical title')
   if (samePhoto) add(0.45, 'same photo file')
@@ -331,6 +335,52 @@ export async function matchNewListings(db: D1Database, now: string, limit: numbe
     .all<StoredListing>()
   for (const l of results) done[(await matchListing(db, l, now)).outcome]++
   return done
+}
+
+// ---- In search: the catalogue's products for a typed name ----
+
+export interface CatalogOffer {
+  itemId: string
+  site: Listing['site']
+  name: string
+  url: string
+}
+
+export interface CatalogProduct {
+  id: number
+  name: string
+  score: number
+  offers: CatalogOffer[] // its listings on every store, most recently seen first
+}
+
+/**
+ * The search's "find relevant products": canonical products a typed product
+ * name confidently is (high), read through the same stages as a listing,
+ * best first, with the offers linked to each. A name that doesn't say its
+ * brand names no product here ("T50 earbuds" may be any brand's), nor one
+ * that leaves a choice open ("Starship milk powder": 500 g or 1 kg?).
+ */
+export async function findProducts(db: D1Database, query: string, limit = 2): Promise<CatalogProduct[]> {
+  const q = parseListing(query, null, null)
+  if (!q.brand) return []
+  const scored = (await candidates(db, q, ''))
+    .map((c) => ({ row: c.row, ...confidence(q, parseListing(c.row.name, c.row.brand, c.row.image), false, true) }))
+    .filter((c) => levelOf(c.score) === 'high' && c.reasons.includes('same brand'))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+  return Promise.all(
+    scored.map(async (c) => ({
+      id: c.row.id,
+      name: c.row.name,
+      score: c.score,
+      offers: (
+        await db
+          .prepare(`SELECT item_id AS itemId, site, name, url FROM listings WHERE product_id = ? ORDER BY last_seen DESC LIMIT 12`)
+          .bind(c.row.id)
+          .all<CatalogOffer>()
+      ).results,
+    })),
+  )
 }
 
 /**

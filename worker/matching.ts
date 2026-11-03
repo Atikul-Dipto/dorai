@@ -5,7 +5,7 @@
  * compare service (compare.ts).
  */
 
-import { compact, foundWords, isAccessory, isBundle, mainModel, modelTokens, namesAllOf, quantities, sizesAgree, storageOf, tokens, variantsOf, withoutVariants } from './ranking.ts'
+import { foundWords, holdsCode, isAccessory, isBundle, mainModel, modelTokens, namesAllOf, quantities, sizesAgree, storageOf, tokens, variantsOf, withoutVariants } from './ranking.ts'
 import type { Intent, Listing } from './types.ts'
 
 export const STOP = new Set(['for', 'with', 'and', 'the', 'of', 'new', 'original', 'pcs', 'pc', 'official', 'warranty'])
@@ -57,7 +57,7 @@ export function relations(title: string, ref?: Listing | null): (l: Listing) => 
   const sibling = (name: string) =>
     !main ||
     main.length < 3 ||
-    compact(name).includes(main) ||
+    holdsCode(name, main) ||
     modelTokens(tokens(name)).some((c) => shape(c) === shape(main) && Math.abs(number(c) - number(main)) <= 0.3 * number(main))
   const bundle = isBundle(title)
   // Words a name adds between the title's own words name another product in
@@ -91,7 +91,7 @@ export function relations(title: string, ref?: Listing | null): (l: Listing) => 
     // ...and is the same kind of thing: a Baby Shampoo isn't close to a Baby Lotion.
     const sameKind = !noun || foundWords([noun], nameLine).length > 0
     const close = sameMake && sameKind && sibling(name) && (ofTitle >= 0.6 || (ofTitle >= 0.4 && ofName >= 0.75)) ? 'close' : null
-    if (main && !(compact(name).includes(main) && namesAllOf(name, title))) return close
+    if (main && !(holdsCode(name, main) && namesAllOf(name, title))) return close
     if (lead && !foundWords([lead], name).length) return close
     // With a model code in common, most words is enough. Without one, the
     // words are the identity: the name holds (nearly) all of the title's

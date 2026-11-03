@@ -10,7 +10,7 @@ flowchart TB
   api["API Layer<br/>Pages Functions: functions/api/pp/*"]
 
   subgraph core["DorAI Core Application (worker/)"]
-    orch["Search Orchestrator<br/>agent.ts · compare.ts"]
+    orch["Search Orchestrator<br/>agent.ts · compare.ts · catalog.findProducts"]
     ai["AI Query Understanding<br/>intent.ts + Workers AI (Llama 3.3)"]
     match["Product Matching Engine<br/>matching.ts · ranking.ts"]
     price["Price Comparison Engine<br/>comparison.ts · eligibility.ts"]
@@ -83,6 +83,61 @@ flowchart TB
 | Price history | D1 `price_history` | A point per listing when the price changes or the last point is >6h old; written by every answer and every scheduled check. |
 | Search & price cache | `worker/cache.ts` (Cache API) | Comparisons 6 hours, identical searches 15 minutes; never an answer where a store couldn't be reached. |
 
+## Search: one question, step by step
+
+The owner's search diagram, as DorAI runs it. DorAI goes further in two
+places: the stores are searched live alongside the database (prices only ever
+come from the stores), and every store gets its own section in the answer.
+
+```mermaid
+sequenceDiagram
+  actor C as Customer
+  participant F as DorAI Frontend
+  participant A as Search API
+  participant Q as Query Parser
+  participant D as D1 database
+  participant S as Stores (live)
+  participant M as Product Matcher
+  participant K as Cache
+  C->>F: Search query
+  F->>A: Submit query (POST /api/pp/ask)
+  A->>K: Check cached result
+  alt Cache hit (same search in the last 15 min)
+    K-->>A: Cached answer
+  else Cache miss
+    A->>Q: Understand query
+    Q-->>A: Product or kind, brand, budget, attributes
+    par Find relevant products
+      A->>D: Catalogue products for a named product; Cartup and Othoba name indexes
+      D-->>A: Candidate products and the offers they're known by
+    and
+      A->>S: Daraz search JSON, Othoba search page, Cartup pages
+      S-->>A: Listings at today's prices
+    end
+    A->>S: Read again the known offers live search missed
+    A->>M: Rank product matches, store by store
+    M-->>A: Ranked results: same product, other size, close match; each store's pick
+    A->>D: Record prices (history) and new listings (for the catalogue)
+    A->>K: Store results (not when a store couldn't be reached)
+  end
+  A-->>F: Structured comparison: one section per store, price facts across them
+  F-->>C: Product cards and offers
+```
+
+| Diagram | DorAI | Notes |
+|---|---|---|
+| DorAI Frontend | `src/agent/AskAgent.jsx` | One box; Bangla or English. A cached answer says so under it. |
+| Search API | `functions/api/pp/ask.ts` → `worker/agent.ts` `run()` | Each step is timed in `timingsMs` (understand, search, cartup, othoba, catalogue, remember, check). |
+| Cache | `worker/cache.ts` (Cache API) | Keyed by the search's words and `CACHE_VERSION`; 15 minutes. |
+| Query Parser | `worker/intent.ts` + Workers AI | A product name is kept as typed (`mode: product`); a description, Bangla or a budget goes to the AI: `productType` (category), `minPrice`/`maxPrice` (budget), `mustHave` (attributes), `brand`. |
+| PostgreSQL → D1 | `catalog.findProducts`, `cartup.lookup`, `othoba.lookup` | The catalogue answers for a named product that says its brand and leaves no choice open (`Awei T50`, `Starship milk powder 1kg`; not `Starship milk powder`): high confidence only, with its offers on every store. An offer the catalogue knows is "same product" even when its title fooled live matching; on a store live search found nothing on, it's read again live (`STORES[site].current`). |
+| Product Matcher | `ranking.ts` (rank), `matching.ts` (same / other size / close), `comparison.ts` (each store's pick, cross-store facts) | |
+| Structured comparison | `Answer`: `stores[]`, `summary`, `catalogue` | `catalogue` names the canonical product and the offers it vouched for. |
+
+A kind of item ("monitor under 30k") names no product, so the catalogue
+isn't asked for it yet: the live stores are the candidates, and what they
+return feeds the catalogue for later.
+
 ## The product matching engine (catalogue)
 
 `worker/catalog.ts`, one function per stage. It runs on every listing DorAI
@@ -125,9 +180,10 @@ flowchart TB
 | Levels | High ≥ 0.80 links automatically. Medium ≥ 0.60 and low ≥ 0.40 wait for a person at `/review` (admin token); the listing stays unlinked meanwhile. Below 0.40 there's no existing match: a new canonical product. |
 | Review | "Same product" links it (`manual`). "Different" remembers the pair and sends the listing through again without that product. One decision covers every pending review of that product for a listing with the same fingerprint (one title copied by five sellers), and later listings with that fingerprint follow it (`manual`, no review). |
 
-Answers don't wait for the catalogue: they match live (`matching.ts`), and
-a product's canonical identity is for its history across stores, alerts and,
-later, product pages.
+Answers don't wait for the catalogue: they match live (`matching.ts`). The
+catalogue then tells search which offers a named product already has on
+every store (above), and gives a product its history across stores, alerts
+and, later, product pages.
 
 ## What stays on the developer's PC
 

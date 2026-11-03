@@ -33,6 +33,29 @@ export const UNIT_ALIASES: Record<string, string> = { gm: 'g', gram: 'g', grams:
 export const tokens = (text: string): string[] => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
 export const compact = (text: string) => tokens(text).join('')
 
+const isDigit = (ch: string | undefined) => ch !== undefined && ch >= '0' && ch <= '9'
+
+/**
+ * Whether a title holds a model code as that code, not inside a longer
+ * number: "T50" is in "Awei T50 Pro" and "AWEIT50", not in "Umay T500MM" or
+ * "MODEL T500 2.0" (both were "the same product" as the Awei T50 earbuds);
+ * "KL69" isn't in "KL699". A code may still end where a word does ("A36" in
+ * "Galaxy A36 5G", "iPhone 15" in "iPhone 15 Pro").
+ */
+export function holdsCode(name: string, code: string): boolean {
+  const ts = tokens(name)
+  const c = ts.join('')
+  const edges = new Set<number>([c.length])
+  ts.reduce((at, t) => (edges.add(at), at + t.length), 0)
+  for (let i = c.indexOf(code); code && i !== -1; i = c.indexOf(code, i + 1)) {
+    const end = i + code.length
+    const left = edges.has(i) || !(isDigit(code[0]) && isDigit(c[i - 1]))
+    const right = edges.has(end) || !(isDigit(code[code.length - 1]) && isDigit(c[end]))
+    if (left && right) return true
+  }
+  return false
+}
+
 const IN_BASE_UNIT: Record<string, [number, string]> = { kg: [1000, 'g'], l: [1000, 'ml'] }
 
 /**
@@ -378,7 +401,7 @@ export function rank(listings: Listing[], intent: Intent, limit = 6, extra: List
   const wanted = quantities(intent.searchQuery)
   let same = candidates
   // A named model must be in the title: "kl69" never matches a KL68, "a36" never an A56.
-  if (models.length) same = same.filter((l) => models.every((m) => compact(l.name).includes(m)) && namesAllOf(l.name, intent.searchQuery))
+  if (models.length) same = same.filter((l) => models.every((m) => holdsCode(l.name, m)) && namesAllOf(l.name, intent.searchQuery))
   // Variant words name a different model: "Redmi Note 14" is not the Note 14
   // Pro Plus, "iPhone 15" is not the 15 Pro Max. They must match both ways.
   const main = mainModel(intent.searchQuery)

@@ -25,5 +25,6 @@ Key relationships: `listings.product_id → products.id`;
 devices.id` (deleted with the device); `price_history.item_id`,
 `watches.item_id`, `tasks.key → listings.item_id` (by value).
 
-D1's free plan: 5 GB storage, 5M rows read and 100k rows written a day. The
-database is ~120 MB, mostly the two name indexes.
+D1's free plan: 500 MB per database, 5 GB per account, 5M rows read and 100k
+rows written a day. The database is ~146 MB (2026-11-05), mostly the two name
+indexes; a Cartup rebuild briefly holds a second copy of its index.

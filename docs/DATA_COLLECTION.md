@@ -39,9 +39,8 @@ pauses scheduled workflows in a repository with no commits for 60 days.
 - **No getting past bot checks:** a store that answers with a challenge isn't
   read (Ryans sits behind Cloudflare's bot challenge, so it isn't a store
   here). When Daraz bot-checks, the answer says Daraz couldn't be reached.
-- **robots.txt** is not followed for Othoba's search page and Cartup's
-  category pages (the owner's decision, 2026-11-03); every other line above
-  still holds.
+- **robots.txt** is not followed for Othoba's search page (the owner's
+  decision, 2026-11-03); every other line above still holds.
 - **No visitor data:** questions are logged without who asked; learning
   events hold the search, the offer and the act only; rate limits count
   salted hashes of addresses.

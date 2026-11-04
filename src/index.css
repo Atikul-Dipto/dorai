@@ -1,9 +1,21 @@
 /*
  * DorAI's design system: tokens and base elements. Purple on white
- * (#522D60, #80426E, #F2A67B, #FFD38B), Manrope for Latin text and Hind
- * Siliguri for Bangla (loaded in index.html). Components live in App.css
- * (page, hero, sections, buttons) and agent/agent.css (answers).
+ * (#522D60, #80426E, #F2A67B, #FFD38B). Latin: Poppins Bold for headings
+ * and prices, Gill Sans for text (Cabin where a device doesn't have it).
+ * Bangla: Hind Siliguri (web fonts load in index.html; docs/DESIGN.md says
+ * why). Components live in App.css (page, hero, sections, buttons) and
+ * agent/agent.css (answers).
  */
+
+/* Gill Sans's "1" is a plain stroke: "৳157" read "৳I57". Its digits come from Cabin (public/fonts, OFL). */
+@font-face {
+  font-family: 'DorAI Digits';
+  src: url('/fonts/cabin-digits.woff2') format('woff2');
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range: U+30-39;
+}
+
 :root {
   --purple: #522d60;
   --plum: #80426e;
@@ -32,7 +44,8 @@
   --shadow: 0 1px 2px rgba(46, 26, 54, 0.05), 0 10px 28px rgba(46, 26, 54, 0.08);
   --ring: 0 0 0 4px rgba(128, 66, 110, 0.16);
 
-  --font: 'Manrope', 'Hind Siliguri', system-ui, sans-serif;
+  --font: 'DorAI Digits', 'Gill Sans', 'Gill Sans MT', 'Cabin', 'Hind Siliguri', system-ui, sans-serif;
+  --font-heading: 'Poppins', 'Hind Siliguri', system-ui, sans-serif;
   --mono: 'DM Mono', ui-monospace, monospace;
 
   font-family: var(--font);
@@ -47,6 +60,7 @@
 html { scroll-behavior: smooth; }
 body { margin: 0; min-width: 320px; background: var(--bg); line-height: 1.5; }
 :lang(bn) body, :lang(bn) { line-height: 1.6; }
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); font-weight: 700; }
 button, input, select { font: inherit; color: inherit; }
 a { color: inherit; text-decoration: none; }
 img { max-width: 100%; }

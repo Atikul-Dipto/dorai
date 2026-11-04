@@ -5,6 +5,9 @@ has the detail.
 
 ## 2026-11-05
 
+- **New English type:** Poppins Bold for headings and prices, Gill Sans for
+  text (Cabin where a device doesn't have it). Bangla stays Hind Siliguri until
+  FontBD allows its fonts on the site (`docs/DESIGN.md`).
 - **Hot deal.** The lowest of the stores' picks burns: a banner above the
   stores with an animated flame and a glow, and a ribbon on that store's card.
   It says a saving only on the same product; for a kind of item it says the

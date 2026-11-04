@@ -20,8 +20,23 @@ switch, and one big search box with an optional budget/needs line.
 
 Othoba's accent is `#E3C7DA` (tag) and `#C99BB9` (card top border).
 
-Type: Manrope for Latin, Hind Siliguri for Bangla (one `font-family`
-stack, so mixed text picks the right glyphs), DM Mono only for timings.
+Type (the owner's choice, 2026-11-05): Poppins Bold for headings and prices
+(`--font-heading`), Gill Sans for text (`--font`). Gill Sans is a paid
+Monotype font, so it isn't hosted: devices that have it use it (Apple devices,
+Windows with Office), and the rest get Cabin, free and in the same style.
+Gill Sans's "1" is a plain stroke that reads as "I" ("৳I57"), so digits in text
+always come from Cabin: `DorAI Digits`, a 4 KB subset in `public/fonts/`, with
+its OFL licence beside it. Bangla is Hind Siliguri in both stacks, which fall
+through to it, so mixed text picks the right glyphs. DM Mono only for timings.
+
+The owner chose FN Saimoon Srabon (Bangla headings) and FN Mamun Turio (Bangla
+text) from FontBD, but they aren't on the site: the licence inside both fonts
+says "You cannot Modify, Distribute, Edit, Forge or Sell this Font Software",
+and FontBD's EULA forbids uploading its fonts to any other website. A web font
+is a file sent to every visitor. With written permission from FontBD, add them
+to `public/fonts/` with `@font-face`, put their names before Hind Siliguri, and
+credit FontBD as the licence asks.
+
 Bangla text gets a taller line height (`:lang(bn)`), and no uppercase or
 letter spacing.
 

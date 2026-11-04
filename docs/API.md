@@ -27,7 +27,7 @@ A shopper's question, answered across the stores (`worker/agent.ts`).
 Answer (`Answer` in `worker/agent.ts`): `query`, `intent` (mode, kind,
 brand, budget, attributes), `stores[]` (one section per store: `recommended`
 with price, voucher and price memory, `why`, `matches[]` with `relation`
-same / variant / close / fits, `note`, `link`), `summary`, `catalogue` (the
+same / variant / close / fits, `note`, `link`), `summary`, `hotDeal` (the lowest of the stores' picks: `site`, `name`, `url`, `price`, `voucher`, `sameProduct`, `rival`, `saving`, `stores`; null when there's no true claim to make), `catalogue` (the
 canonical product a named product is, and the offers it vouched for),
 `checkedAt`, `timingsMs`, `cached`.
 
@@ -39,7 +39,7 @@ much typed), 502 (the search failed).
 
 One product a shopper is looking at (a Daraz, Cartup or Othoba link, or the
 text a store's app shares), on every store (`worker/compare.ts`): `source`,
-`stores[]`, `cheaper`, `unreachable[]`, `checkedAt`, `cached`. Cached 6
+`stores[]`, `cheaper`, `hotDeal`, `unreachable[]`, `checkedAt`, `cached`. Cached 6
 hours per product. Used by the browser extension and the installable app.
 
 ### `GET /vouchers` — public

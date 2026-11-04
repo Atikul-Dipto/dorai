@@ -21,6 +21,7 @@ const ACCESSORY_WORDS = new Set([
 ])
 const PRICE_FLOOR_RATIO = 0.3
 const OVERSEAS_PENALTY = 0.35
+const NAMED_AFTER_PENALTY = 0.6
 export const isOverseas = (l: Listing) => l.location.toLowerCase() === 'overseas'
 // "good camera" is checked as "camera".
 // Words that qualify or name a spec rather than state it: "good camera" is checked as
@@ -187,6 +188,27 @@ const WHO_FOR = new Set(['men', 'mens', 'women', 'womens', 'man', 'woman', 'boys
 
 // Words typed around what's wanted, not part of it.
 const FILLER_WORDS = new Set(['for', 'with', 'and', 'the', 'of', 'new', 'original', 'best', 'pcs', 'pc'])
+export const COLOURS = new Set(['black', 'white', 'red', 'blue', 'green', 'pink', 'grey', 'gray', 'silver', 'gold', 'purple', 'yellow', 'orange', 'brown', 'graphite'])
+// Words that can follow a kind word without making it something else ("Bench for Garden", "Shirt Black").
+const AFTER_THE_KIND = new Set([...FILLER_WORDS, ...COLOURS, ...WHO_FOR, 'in', 'by', 'from', 'to', 'on', 'at', 'set', 'pack', 'size', 'type', 'style', 'model'])
+
+/**
+ * Whether a title's kind word names the thing itself, not a word in front of
+ * another thing: "Sit Up Bench", "Garden Bench - 1 pc" and "School Bench
+ * (1450X425)" are benches; "Bench Vise 6 inch" and "Storage Bench Cabinet"
+ * aren't. Cartup's pick for "bench" was a vise. A title the word isn't
+ * literally in ("Smartphone" for "phone") can't be judged, so it passes.
+ */
+export function namesTheKind(name: string, kind: string): boolean {
+  const after = new RegExp(`(?<![a-z0-9])${kind}(?:s|es)?(?![a-z0-9])([^a-z0-9]*)([a-z0-9]*)`, 'g')
+  let seen = false
+  for (const [, gap, next] of name.toLowerCase().matchAll(after)) {
+    seen = true
+    const punctuated = gap.trim() !== '' && gap.trim() !== '-'
+    if (!next || punctuated || /\d/.test(next) || AFTER_THE_KIND.has(next)) return true
+  }
+  return !seen
+}
 
 /** How many of the shopper's words a title has, plurals included ("bag" in "Bags", "men" in "Mens"). */
 // Names for the same kind of thing: Cartup's phones say "Smartphone", never "mobile".
@@ -339,7 +361,7 @@ function priceFloor(candidates: Listing[], reference: number | null): [Listing[]
  * trust, and closeness to the budget (a ৳25k budget means the best phone
  * near ৳25k, not the cheapest thing under it).
  */
-function scoreForNeed(candidates: Listing[], intent: Intent): Listing[] {
+function scoreForNeed(candidates: Listing[], intent: Intent, kind?: string): Listing[] {
   for (const l of candidates) {
     l.matchedFeatures = matchFeatures(l, intent.mustHave)
     const features = intent.mustHave.length ? l.matchedFeatures.length / intent.mustHave.length : 0
@@ -355,7 +377,9 @@ function scoreForNeed(candidates: Listing[], intent: Intent): Listing[] {
     // Unrated listings start below the usual prior, for the same reason; and
     // shipping from abroad (slower, harder to return) costs a little more.
     const trust = (l.reviews > 0 || vouched ? trustScore(l) : trustScore(l) - 0.1) - (isOverseas(l) ? OVERSEAS_PENALTY : 0)
-    l.relevance = Math.round((features * 1.5 + trust + budgetFit * 0.8 * evidence) * 1000) / 1000
+    // A soft cost, not a filter: "Logitech Mouse Wireless" is a mouse, whatever word comes next.
+    const namedAfter = kind && !namesTheKind(l.name, kind) ? NAMED_AFTER_PENALTY : 0
+    l.relevance = Math.round((features * 1.5 + trust + budgetFit * 0.8 * evidence - namedAfter) * 1000) / 1000
   }
   return candidates.sort((a, b) => b.relevance - a.relevance || a.price - b.price)
 }
@@ -392,7 +416,7 @@ export function rank(listings: Listing[], intent: Intent, limit = 6, extra: List
     // One of it, unless a combo was asked for ("Lux Body Wash 245ml (Bundle of 4)").
     if (!isBundle(intent.searchQuery)) pool = pool.filter((l) => !isBundle(l.name))
     const [kept, suspicious] = priceFloor(pool, pool.length >= 4 ? median(pool.map((l) => l.price)) : null)
-    pool = scoreForNeed(kept, intent)
+    pool = scoreForNeed(kept, intent, kind)
     return { ranked: pool.slice(0, limit), alternatives: [], suspicious }
   }
 

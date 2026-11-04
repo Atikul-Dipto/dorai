@@ -10,7 +10,7 @@
  * bot check after ~50 questions in half an hour).
  */
 
-import { closestFirst, compareAcross, matchRows, recommendHere, relations, type Result, type StoreAnswer, UNBRANDED } from './agent.ts'
+import { closestFirst, compareAcross, type HotDeal, hotDeal, matchRows, recommendHere, relations, type Result, type StoreAnswer, UNBRANDED } from './agent.ts'
 import { CACHE_VERSION, readCache, writeCache } from './cache.ts'
 import * as cartup from './cartup.ts'
 import * as daraz from './daraz.ts'
@@ -30,6 +30,7 @@ export interface Comparison {
   source: Result // the product being looked at, as its store sells it
   stores: StoreAnswer[] // that product on each store: recommended = its cheapest trusted offer there
   cheaper: { site: Listing['site']; label: string; saving: number } | null // the same product for less elsewhere
+  hotDeal: HotDeal | null // the lowest of the stores' offers on it, when every store was checked
   checkedAt: string
   cached: boolean
   unreachable: Listing['site'][] // stores that couldn't be checked this time: nothing is claimed about them
@@ -200,6 +201,7 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
     source: here,
     stores,
     cheaper: elsewhere && saving > 0 ? { site: elsewhere.site, label: elsewhere.label, saving } : null,
+    hotDeal: darazDown ? null : hotDeal(stores, true),
     checkedAt: nowIso,
     cached: false,
     unreachable: darazDown ? ['daraz'] : [],

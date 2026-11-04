@@ -5,14 +5,14 @@
  * compare service (compare.ts).
  */
 
-import { foundWords, holdsCode, isAccessory, isBundle, mainModel, modelTokens, namesAllOf, quantities, sizesAgree, storageOf, tokens, variantsOf, withoutVariants } from './ranking.ts'
+import { COLOURS, foundWords, holdsCode, isAccessory, isBundle, mainModel, modelTokens, namesAllOf, quantities, sizesAgree, storageOf, tokens, variantsOf, withoutVariants } from './ranking.ts'
 import type { Intent, Listing } from './types.ts'
 
 export const STOP = new Set(['for', 'with', 'and', 'the', 'of', 'new', 'original', 'pcs', 'pc', 'official', 'warranty'])
 export const words = (s: string) => tokens(s).filter((t) => !STOP.has(t))
 // Words sellers add to any title; they never make it a different product.
 export const SALES_TALK = new Set(['premium', 'quality', 'high', 'best', 'special', 'genuine', 'authentic', 'imported', 'fresh', 'super', 'top', 'hot', 'sale', 'care'])
-export const COLOURS = new Set(['black', 'white', 'red', 'blue', 'green', 'pink', 'grey', 'gray', 'silver', 'gold', 'purple', 'yellow', 'orange', 'brown', 'graphite'])
+export { COLOURS }
 
 export type Relation = 'same' | 'variant' | 'close'
 

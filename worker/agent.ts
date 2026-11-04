@@ -28,7 +28,7 @@ import * as cartup from './cartup.ts'
 import { type CatalogProduct, findProducts } from './catalog.ts'
 import * as daraz from './daraz.ts'
 import * as othoba from './othoba.ts'
-import { bestOffer, closestFirst, compareAcross, firstOffer, needWhy, recommendHere, type Result, type StoreAnswer, type StoreMatch, summarize } from './comparison.ts'
+import { bestOffer, closestFirst, compareAcross, firstOffer, type HotDeal, hotDeal, needWhy, recommendHere, type Result, type StoreAnswer, type StoreMatch, summarize } from './comparison.ts'
 import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { buildIntent, coreQuery, describeQuery, parseIntent } from './intent.ts'
 import { matchRows, relations, type Row, sameProduct, samePicks, sharedPick } from './matching.ts'
@@ -38,7 +38,7 @@ import { STORES } from './stores.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
 
 // The engines this orchestrator drives, re-exported for the compare service and the tests.
-export { bestOffer, closestFirst, compareAcross, evidence, recommendHere, type Result, type StoreAnswer, type StoreMatch, standing } from './comparison.ts'
+export { bestOffer, closestFirst, compareAcross, evidence, type HotDeal, hotDeal, recommendHere, type Result, type StoreAnswer, type StoreMatch, standing } from './comparison.ts'
 export { matchRows, photoId, relations, type Row, sameProduct, sharedPick, UNBRANDED } from './matching.ts'
 
 const MIN_GOOD_RESULTS = 5
@@ -56,6 +56,7 @@ export interface Answer {
   query: string
   intent: Intent
   stores: StoreAnswer[]
+  hotDeal: HotDeal | null // the lowest price of the stores' picks, when there's a true claim to make
   summary: string
   checkedAt: string // when these prices were read from the stores (all live, in this answer)
   cartupCategories: string[] // the Cartup category pages browsed
@@ -436,6 +437,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     query,
     intent,
     stores,
+    hotDeal: hotDeal(stores, named),
     summary,
     checkedAt: nowIso,
     cartupCategories: categories,

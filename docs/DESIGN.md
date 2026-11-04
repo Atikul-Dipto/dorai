@@ -27,7 +27,8 @@ letter spacing.
 
 ## Components
 
-- Buttons: `.btn` + `.btn-primary` / `.btn-ghost` / `.btn-small`, `.btn-link`, `.icon-btn`.
+- Buttons: `.btn` + `.btn-primary` / `.btn-ghost` / `.btn-small` / `.btn-hot`, `.btn-link`, `.icon-btn`.
+- Hot deal: `.hot-deal` banner above the stores, `.store-section.is-hot` and `.hot-ribbon` on the winning store, the animated `Flame` icon. Tokens `--hot` `#E4572E`, `--hot-deep` `#B8360F`, `--hot-tint` `#FFF3EA`, used for nothing else. The flame and glow stop under `prefers-reduced-motion`. Wording stays "lowest of the picks": a cheaper row can sit further down a store's list.
 - `.chip` (searches), `.badge` (`-strong`, `-warm`), `.store-tag.{daraz,cartup,othoba}`, `.eyebrow`.
 - Cards: `.card`, `.how` steps, `.why-grid`, `.store-section` (one per store, side by side; swipe row on phones).
 - States: `.progress` with skeleton cards while waiting, `.error-box`, `.empty`.

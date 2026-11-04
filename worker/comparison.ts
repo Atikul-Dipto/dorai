@@ -138,6 +138,54 @@ export function compareAcross(stores: StoreAnswer[]): void {
   }
 }
 
+export interface HotDeal {
+  site: Listing['site']
+  label: string
+  itemId: string
+  name: string
+  url: string
+  price: number // what it costs, after the best public voucher when one applies
+  voucher: string | null
+  sameProduct: boolean // true: `rival` sells this very product. false: the stores' picks are different products
+  rival: { label: string; price: number } // the next cheapest of those stores
+  saving: number // less than the rival
+  stores: number // picks compared, this one included
+}
+
+/**
+ * The lowest price of the stores' picks, which the page shows burning. It
+ * only says what's true: at least two stores' in-stock picks to compare,
+ * every store checked (one that couldn't be reached may be cheaper), and one
+ * clear winner (a tie has none). `sameProduct` tells a real saving on one
+ * product from the cheapest of several different ones: for "bench" a ৳4,000
+ * garden bench isn't "৳4,000 less" than a ৳8,000 gym bench. A named product
+ * is the same product on every store by the time it's a store's pick.
+ */
+export function hotDeal(stores: StoreAnswer[], named: boolean): HotDeal | null {
+  if (stores.some((s) => s.note?.startsWith("Couldn't reach"))) return null
+  const offers = stores
+    .flatMap((store) => (store.recommended?.listing.inStock ? [{ store, pick: store.recommended }] : []))
+    .sort((a, b) => a.pick.finalPrice - b.pick.finalPrice)
+  const [best, ...rest] = offers
+  if (!rest.length || rest[0].pick.finalPrice === best.pick.finalPrice) return null
+  const sameAsBest = rest.filter((o) => named || samePicks(best.pick.listing, o.pick.listing))
+  const rival = sameAsBest[0] ?? rest[0]
+  const { listing } = best.pick
+  return {
+    site: best.store.site,
+    label: best.store.label,
+    itemId: listing.itemId,
+    name: listing.name,
+    url: listing.url,
+    price: best.pick.finalPrice,
+    voucher: best.pick.bestVoucher?.voucher.title ?? null,
+    sameProduct: sameAsBest.length > 0,
+    rival: { label: rival.store.label, price: rival.pick.finalPrice },
+    saving: Math.round((rival.pick.finalPrice - best.pick.finalPrice) * 100) / 100,
+    stores: offers.length,
+  }
+}
+
 export function summarize(stores: StoreAnswer[]): string {
   return stores
     .map((s) => (s.recommended ? `${s.label}: ${s.recommended.listing.name} at ${money(s.recommended.finalPrice)} from ${s.recommended.listing.seller || s.label}.` : `${s.label}: ${s.note ?? 'nothing found.'}`))

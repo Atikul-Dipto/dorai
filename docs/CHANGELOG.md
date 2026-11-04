@@ -3,6 +3,17 @@
 What changed for shoppers and for the system, newest first. Commit history
 has the detail.
 
+## 2026-11-05
+
+- **Hot deal.** The lowest of the stores' picks burns: a banner above the
+  stores with an animated flame and a glow, and a ribbon on that store's card.
+  It says a saving only on the same product; for a kind of item it says the
+  picks are different products. No claim with fewer than two offers, on a tie,
+  or when a store couldn't be reached.
+- **A kind of item is the thing itself:** a title where the kind word only sits
+  in front of another thing ("bench vise", "rice cooker") now ranks lower.
+  Cartup's pick for "bench" was a vise, Othoba's a shoe cabinet.
+
 ## 2026-11-03
 
 - **Learning events.** The answer page records what shoppers do: opening an

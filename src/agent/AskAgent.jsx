@@ -257,14 +257,56 @@ function NotThis({ query, listing }) {
   )
 }
 
+function Flame() {
+  return (
+    <svg className="flame" viewBox="0 0 24 32" aria-hidden="true">
+      <path className="flame-outer" d="M12 0c1 6 7 9 9.500 15 2.500 8-3 17-9.500 17S.5 24 2.500 16c1 2.500 2.500 3.500 4.500 3.500C6 12.500 9 6 12 0z" />
+      <path className="flame-inner" d="M12 13c.7 3.500 4.500 5.500 5 9.500.5 4.500-2 8.500-5 8.500s-5.500-4-5-8.500c.4-3.500 4-4.500 5-9.500z" />
+    </svg>
+  )
+}
+
+/**
+ * The lowest price of the stores' picks, burning above them (worker/comparison.ts
+ * hotDeal). It says a saving only on the same product; different products are
+ * called just that.
+ */
+function HotDealBanner({ deal, query }) {
+  const { t } = useLang()
+  return (
+    <aside className="hot-deal" aria-label={t.hotDeal}>
+      <Flame />
+      <div className="hot-deal-text">
+        <p className="hot-deal-title">
+          {t.hotDeal} <StoreTag site={deal.site} />
+        </p>
+        <h3>{deal.name}</h3>
+        <p className="hot-deal-why">{deal.sameProduct ? t.hotSame(money(deal.saving), deal.rival.label) : t.hotPicks(deal.stores)}</p>
+      </div>
+      <div className="hot-deal-buy">
+        <strong>{money(deal.price)}</strong>
+        {deal.voucher && <small>{t.withVoucher}</small>}
+        <a className="btn btn-hot" href={deal.url} target="_blank" rel="noreferrer" onClick={() => track('open', { query, listing: deal })}>
+          {t.open(deal.label)}
+        </a>
+      </div>
+    </aside>
+  )
+}
+
 /** One store's recommended option: its own pick, never compared away. */
-function StorePick({ store, query }) {
+function StorePick({ store, query, hot }) {
   const { t } = useLang()
   const { recommended: result, why, label, site } = store
   const { listing, history, bestVoucher, finalPrice } = result
   const [imgOk, setImgOk] = useState(true)
   return (
     <article className="store-pick">
+      {hot && (
+        <p className="hot-ribbon">
+          <Flame /> {t.hotBadge}
+        </p>
+      )}
       <div className="store-pick-top">
         <div className="store-pick-media">
           {listing.image && imgOk ? (
@@ -373,11 +415,11 @@ function StoreMatches({ store, named, query }) {
 }
 
 /** One store's whole answer. Each store gets one of these, side by side. */
-function StoreSection({ store, named, query }) {
+function StoreSection({ store, named, query, hot }) {
   const { t } = useLang()
   const count = (store.recommended ? 1 : 0) + store.matches.length
   return (
-    <section className={`store-section ${store.site}`}>
+    <section className={`store-section ${store.site}${hot ? ' is-hot' : ''}`}>
       <header className="store-section-head">
         <StoreTag site={store.site} />
         <span>{t.matches(count)}</span>
@@ -387,7 +429,7 @@ function StoreSection({ store, named, query }) {
           </a>
         )}
       </header>
-      {store.recommended ? <StorePick store={store} query={query} /> : <p className="store-empty">{store.note}</p>}
+      {store.recommended ? <StorePick store={store} query={query} hot={hot} /> : <p className="store-empty">{store.note}</p>}
       {store.recommended && store.note && <p className="store-empty">{store.note}</p>}
       <StoreMatches store={store} named={named} query={query} />
       {store.site === 'daraz' && store.recommended && <VoucherChecks checks={store.recommended.vouchers} />}
@@ -415,9 +457,11 @@ function Answer({ answer }) {
       <Understood intent={answer.intent} />
       <p className="searched-where">{t.searched(where, clock(answer.checkedAt, lang))}</p>
 
+      {answer.hotDeal && <HotDealBanner deal={answer.hotDeal} query={answer.query} />}
+
       <div className="stores-grid" style={{ '--stores': stores.length }}>
         {stores.map((s) => (
-          <StoreSection key={s.site} store={s} named={named} query={answer.query} />
+          <StoreSection key={s.site} store={s} named={named} query={answer.query} hot={answer.hotDeal?.site === s.site} />
         ))}
       </div>
 
@@ -497,9 +541,10 @@ function Comparison({ answer }) {
       </p>
       <p className="compare-verdict">{verdict}</p>
       <p className="searched-where">{t.searched(answer.stores.map((s) => s.label).join(', '), clock(answer.checkedAt, lang))}</p>
+      {answer.hotDeal && <HotDealBanner deal={answer.hotDeal} query={source.name} />}
       <div className="stores-grid" style={{ '--stores': answer.stores.length }}>
         {answer.stores.map((s) => (
-          <StoreSection key={s.site} store={s} named />
+          <StoreSection key={s.site} store={s} named hot={answer.hotDeal?.site === s.site} />
         ))}
       </div>
     </section>

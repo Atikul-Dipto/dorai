@@ -4,11 +4,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { bestOffer, compareAcross, evidence, matchRows, photoId, recommendHere, relations, type Result, run, sameProduct, sharedPick, type StoreAnswer, standing } from './agent.ts'
+import { bestOffer, compareAcross, evidence, hotDeal, matchRows, photoId, recommendHere, relations, type Result, run, sameProduct, sharedPick, type StoreAnswer, standing } from './agent.ts'
 import { decodeIds, fnv1a, likeDaraz, parseCategoryPage, parseProductPage, pickCategories, requiredWords } from './cartup.ts'
 import { bestVoucher, campaignName, check, checkAll } from './eligibility.ts'
 import { buildIntent, cleanSearchQuery, coreQuery, describeQuery, groundedPrice, namesAProduct, parseRules, queryNumbers, readsAsDescription, restoreModelNumbers } from './intent.ts'
-import { foundWords, holdsCode, isBundle, missingWords, modelTokens, quantities, rank, storageOf, tokens, trusted, variantsOf } from './ranking.ts'
+import { foundWords, holdsCode, isBundle, missingWords, modelTokens, namesTheKind, quantities, rank, storageOf, tokens, trusted, variantsOf } from './ranking.ts'
 import type { Intent, Listing, Voucher } from './types.ts'
 
 const CAMPAIGN = 'https://pages.daraz.com.bd/wow/gcp/route/daraz/bd/upr/router?wh_pid=%2Flazada%2Fchannel%2Fbd%2Fweekly-campaigns%2FbKashChoice'
@@ -387,6 +387,50 @@ test('each store keeps its own pick; where both have the same product, each says
   const apart = [storeOf('daraz', listing('Wheel Washing Powder 2Kg', 269)), storeOf('cartup', onCartup('Rin Liquid Detergent 800ml', 177))]
   compareAcross(apart)
   assert.deepEqual(apart.map((s) => s.why), ['Why.', 'Why.'])
+})
+
+test('the hot deal: the lowest pick, with only what is true said about it', () => {
+  const dahua = 'Dahua LM27-B221B=V1 27 Inch Full HD 100Hz IPS Monitor'
+  const onOthoba = (name: string, price: number, extra: Partial<Listing> = {}) => listing(name, price, { site: 'othoba', ...extra })
+  const othobaOf = (pick: Listing | null): StoreAnswer => ({ ...storeOf('othoba', pick), label: 'Othoba' })
+
+  // The same product: a real saving, against the next cheapest store.
+  const same = hotDeal([storeOf('daraz', listing(dahua, 17000)), storeOf('cartup', onCartup(dahua, 15591)), othobaOf(onOthoba(dahua, 16000))], true)!
+  assert.deepEqual([same.label, same.price, same.sameProduct, same.rival.label, same.saving, same.stores], ['Cartup', 15591, true, 'Othoba', 409, 3])
+
+  // Different products: the lowest of the picks, and no "saving" claim.
+  const apart = hotDeal([storeOf('daraz', listing('Adjustable Sit Up Bench', 8600)), storeOf('cartup', onCartup('Garden Bench', 7545))], false)!
+  assert.deepEqual([apart.label, apart.sameProduct], ['Cartup', false])
+
+  // A voucher counts: it's what the shopper pays.
+  const voucher = { ...storeOf('daraz', listing(dahua, 17000)), recommended: { ...asResult(listing(dahua, 17000)), finalPrice: 15000, bestVoucher: { voucher: { title: 'bKash ৳2000' } } as Result['bestVoucher'] } }
+  assert.equal(hotDeal([voucher, storeOf('cartup', onCartup(dahua, 15591))], true)?.voucher, 'bKash ৳2000')
+
+  // No claim when there's nothing to compare, no winner, or a store went unchecked.
+  assert.equal(hotDeal([storeOf('daraz', listing(dahua, 17000)), storeOf('cartup', null)], true), null)
+  assert.equal(hotDeal([storeOf('daraz', listing(dahua, 15000)), storeOf('cartup', onCartup(dahua, 15000))], true), null)
+  assert.equal(hotDeal([storeOf('daraz', listing(dahua, 900, { inStock: false })), storeOf('cartup', onCartup(dahua, 15000))], true), null)
+  const down = { ...storeOf('daraz', null), note: "Couldn't reach Daraz just now — try again in a moment." }
+  assert.equal(hotDeal([down, storeOf('cartup', onCartup(dahua, 15000)), othobaOf(onOthoba(dahua, 16000))], true), null)
+})
+
+test('a kind of item: the thing itself beats something merely named after it', () => {
+  // Cartup's and Othoba's real picks for "bench" (2026-11-05): a vise and a shoe cabinet.
+  assert.equal(namesTheKind('coofix bench vise 6" weight', 'bench'), false)
+  assert.equal(namesTheKind('Furnix Shoe Organizer with Sofa Storage Bench Cabinet and Shoe Rack', 'bench'), false)
+  assert.equal(namesTheKind('Rice Cooker 1.8 Litre', 'rice'), false)
+  for (const name of ['Heavy duty adjustable sit up bench', 'Garden/Rooftop bench - 1 pc', 'REGAL SCHOOL BENCH (1450X425X730)', 'Adjustable Sit Up Bench - Black And Red', 'Benches for Garden', 'Miniket Rice 5 KG']) {
+    assert.ok(namesTheKind(name, name.toLowerCase().includes('rice') ? 'rice' : 'bench'), name)
+  }
+  // Not literally there: it can't be judged ("Smartphone" for "phone").
+  assert.ok(namesTheKind('Samsung Smartphone 8GB', 'phone'))
+
+  const need = (q: string): Intent => ({ ...product(q), mode: 'need' })
+  const vouched = { sellerPositive: 93, rating: null, reviews: 0 }
+  const { ranked } = rank([onCartup('coofix bench vise 6" weight', 4115, vouched), onCartup('Garden/Rooftop bench - 1 pc', 7545, { rating: null, reviews: 0 }), onCartup('Sit Up Bench ET-101', 4901, { rating: null, reviews: 0 })], need('bench'))
+  assert.equal(ranked[0].name, 'Garden/Rooftop bench - 1 pc')
+  // Soft, not a filter: with nothing better it's still shown.
+  assert.equal(rank([onCartup('coofix bench vise 6" weight', 4115, vouched)], need('bench')).ranked.length, 1)
 })
 
 test('Daraz vouchers never apply to Cartup listings', () => {

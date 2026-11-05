@@ -111,11 +111,12 @@ export function isBundle(name: string): boolean {
 }
 
 // Spec values, not model names: "8gb" and "5000mah" describe a phone, "61 keys" a keyboard,
-// "2.4GHz" a wireless mouse (its "4ghz" was the HP W10's model code).
+// "2.4GHz" a wireless mouse (its "4ghz" was the HP W10's model code), "2 Ply" a tissue
+// ("Tissue – 2 Ply" became a code "tissue2" that no store's listing had, so every store said no match).
 /** "5G" on a phone is the network, not 5 grams ("best 5G phone" lost its 5G as a weight). */
 export const isNetworkGen = (t: string) => /^[3-6]g$/i.test(t.trim())
-const SPEC_RE = /^\d+(?:gb|tb|mb|mah|hz|khz|mhz|ghz|w|wh|mwh|kw|kwh|mp|inch|in|v|k|keys?|m|cm|mm|ft|g|dpi|rpm|fps|db|lm)$/
-const SPEC_WORDS = new Set(['gb', 'tb', 'mb', 'mah', 'hz', 'w', 'mp', 'inch', 'key', 'keys', 'pcs', 'pc', 'months', 'month', 'years', 'year'])
+const SPEC_RE = /^(?:\d+x)?\d+(?:gb|tb|mb|mah|hz|khz|mhz|ghz|w|wh|mwh|kw|kwh|mp|inch|in|v|k|keys?|m|cm|mm|ft|g|dpi|rpm|fps|db|lm|ply|sheets?|rolls?|seater|burners?|doors?|ton)$/
+const SPEC_WORDS = new Set(['gb', 'tb', 'mb', 'mah', 'hz', 'w', 'mp', 'inch', 'key', 'keys', 'pcs', 'pc', 'months', 'month', 'years', 'year', 'ply', 'layer', 'layers', 'sheet', 'sheets', 'roll', 'rolls', 'seater', 'burner', 'burners', 'door', 'doors', 'ton'])
 const VARIANT_WORDS = new Set(['pro', 'plus', 'max', 'ultra', 'lite', 'mini', 'fe', 'neo', 'edge', 'prime'])
 /**
  * "plus pro" from "Redmi Note 14 Pro Plus": the words that make it a different

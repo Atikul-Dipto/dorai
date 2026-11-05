@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { bestOffer, compareAcross, evidence, hotDeal, matchRows, photoId, recommendHere, relations, type Result, run, sameProduct, sharedPick, type StoreAnswer, standing } from './agent.ts'
-import { decodeIds, fnv1a, likeDaraz, parseCategoryPage, parseProductPage, pickCategories, requiredWords } from './cartup.ts'
+import { decodeIds, fnv1a, likeDaraz, parseCategoryPage, parseProductPage, pickCategories, requiredWords, searchIndex } from './cartup.ts'
 import { bestVoucher, campaignName, check, checkAll } from './eligibility.ts'
 import { buildIntent, cleanSearchQuery, coreQuery, describeQuery, groundedPrice, namesAProduct, parseRules, queryNumbers, readsAsDescription, restoreModelNumbers } from './intent.ts'
 import { foundWords, holdsCode, isBundle, missingWords, modelTokens, namesTheKind, quantities, rank, storageOf, tokens, trusted, variantsOf } from './ranking.ts'
@@ -412,6 +412,27 @@ test('the hot deal: the lowest pick, with only what is true said about it', () =
   assert.equal(hotDeal([storeOf('daraz', listing(dahua, 900, { inStock: false })), storeOf('cartup', onCartup(dahua, 15000))], true), null)
   const down = { ...storeOf('daraz', null), note: "Couldn't reach Daraz just now — try again in a moment." }
   assert.equal(hotDeal([down, storeOf('cartup', onCartup(dahua, 15000)), othobaOf(onOthoba(dahua, 16000))], true), null)
+})
+
+test('a number before a counted word is no model code: "Tissue – 2 Ply" is found by its name', () => {
+  // Cartup's own title, copied into the search box: every store said "no match" (2026-11-05).
+  const title = 'Partex Cleen Hand Towel Tissue – 2 Ply'
+  for (const name of [title, 'Sofa 3 Seater', 'Gas Stove 2 Burner', 'Refrigerator 2 Door', 'AC 1 Ton', 'Partex Facial Tissue 60x2ply=120 sheet']) assert.deepEqual(modelTokens(tokens(name)), [], name)
+  assert.deepEqual(modelTokens(tokens('Redmi Note 9')), ['note9'])
+  const same = onCartup(title, 260, { brand: 'Partex Cleen' })
+  assert.equal(relations(title)(same), 'same')
+  assert.ok(rank([same, onCartup('Partex Cleen Toilet Tissue – White', 300)], product(title)).ranked.includes(same))
+})
+
+test('a model code with a part too common to index is still searched ("Note 9")', async () => {
+  const slug = 'xiaomi_redmi_note_9_4gb_64gb_123456789012_abc'
+  const db = {
+    prepare: (sql: string) => ({
+      first: async () => ({ value: JSON.stringify({ built: '', docs: 1000, docBlock: 64, shards: 1, common: ['9'] }) }),
+      bind: () => ({ all: async () => ({ results: sql.includes('_postings') ? [{ data: JSON.stringify({ redmi: '0', note: '0' }) }] : [{ block: 0, data: JSON.stringify([slug]) }] }) }),
+    }),
+  }
+  assert.deepEqual((await searchIndex(db as never, 'Redmi Note 9')).slugs, [slug])
 })
 
 test('a kind of item: the thing itself beats something merely named after it', () => {

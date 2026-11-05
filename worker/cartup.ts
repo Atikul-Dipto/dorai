@@ -127,8 +127,9 @@ export async function searchIndex(db: D1Database, title: string, index: IndexNam
   // The most specific model code Cartup's names contain as words. Cartup glues
   // codes differently ("LM27-B221B=V1" is its "lm27-b221bv1"), so a code it
   // doesn't have as a word falls back to the next one; none at all means it
-  // doesn't list the product.
-  const required = codes.find((parts) => parts.every((w) => postings.has(w))) ?? []
+  // doesn't list the product. A part too common to be indexed (the 9 of "Note 9")
+  // can't be checked here, which isn't the same as missing: the title check does that.
+  const required = codes.find((parts) => parts.every((w) => postings.has(w) || common.has(w))) ?? []
   if (codes.length && !required.length) return { slugs: [], meta }
 
   // A rare word says more than a common one: "jordan" picks out a bag,

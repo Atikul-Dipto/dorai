@@ -125,15 +125,16 @@ export interface AskLog {
   totalMs: number
   timings: Record<string, number>
   error: string | null
+  visitor?: string | null // only for a shopper who said yes to search history (profiles.ts)
 }
 
 export async function logAsk(db: D1Database, a: AskLog): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO asks (asked_at, query, mode, intent_source, results, best_price, best_final, voucher_applied, total_ms, timings, error)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO asks (asked_at, query, mode, intent_source, results, best_price, best_final, voucher_applied, total_ms, timings, error, visitor)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(a.askedAt, a.query.slice(0, 200), a.mode, a.intentSource, a.results, a.bestPrice, a.bestFinal, a.voucherApplied ? 1 : 0, a.totalMs, JSON.stringify(a.timings), a.error)
+    .bind(a.askedAt, a.query.slice(0, 200), a.mode, a.intentSource, a.results, a.bestPrice, a.bestFinal, a.voucherApplied ? 1 : 0, a.totalMs, JSON.stringify(a.timings), a.error, a.visitor ?? null)
     .run()
 }
 

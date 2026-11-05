@@ -141,7 +141,7 @@ D1's free plan allows 100k written rows a day, and a new listing costs about fou
 The DorAI page is built around the agent. The agent itself runs as a **Cloudflare Pages Function** on the same site (Pages project `dorai-bd`): `functions/api/pp/{ask,compare,vouchers,stats}.ts`, with the code in [`worker/`](worker/), a TypeScript port of `agent/`. The page, the extension and the app call it at `https://dorai-bd.pages.dev/api/pp/`. Bindings are in [`wrangler.toml`](wrangler.toml). It's all on the free plan:
 
 - **Workers AI** (`@cf/meta/llama-3.3-70b-instruct-fp8-fast`) reads the request in ~1.5s, at ~14 of the 10,000 free daily neurons per question. Past the daily allowance the call fails, and the rule-based parser answers instead.
-- **D1** (`price-pulse`, schema in `worker/migrations/`) is the agent's memory: listings, price history, vouchers, and a log of questions asked (nothing about the visitor). It was seeded with the scrapers' Daraz history.
+- **D1** (`price-pulse`, schema in `worker/migrations/`) is the agent's memory: listings, price history, vouchers, and a log of questions asked (linked to a visitor only if they said yes to search history). It was seeded with the scrapers' Daraz history.
 - Cloudflare's Dhaka edge reaches Daraz in ~0.2–0.6s.
 
 Things only this PC can do, pushed up to D1:

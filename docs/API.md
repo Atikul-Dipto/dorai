@@ -56,7 +56,8 @@ recent questions needs the owner token.
 ### `POST /events` — public, 300 an hour per caller
 
 What a shopper did with an answer (`worker/interactions.ts`). The page sends
-them as a beacon (`text/plain`); no visitor information is stored.
+them as a beacon (`text/plain`). `visitor` is added only for a shopper who said
+yes to search history (see Visitor profiles).
 
 ```json
 { "events": [{ "kind": "open", "query": "Awei T50", "itemId": "562252743", "site": "daraz", "slot": "pick", "price": 1150 }] }
@@ -74,6 +75,20 @@ Up to 10 per call. Answer: `{ recorded }`.
 
 The readout: counts per kind, opens by slot and relation, most opened
 offers, and the picks most often called not what was wanted.
+
+## Visitor profiles
+
+What one shopper searches and looks up (`worker/profiles.ts`; the page is
+`/profiles`), only for those who said yes on the site. `POST /ask`,
+`POST /compare` and `POST /events` then send `visitor`, the 32-character hex id
+in that browser; the database keeps a salted hash of it. Anything else in
+`visitor` is ignored, and the row is logged with no visitor.
+
+| Endpoint | Access | What |
+|---|---|---|
+| `GET /profiles` | owner | Everyone with a history: 100, most recently active first. |
+| `GET /profiles?id=<key>` | owner | One visitor's pattern (searches, repeats, stores, brands, prices, time of day, products) and last 100 acts. |
+| `DELETE /profiles` | public, 30 an hour per caller | `{ visitor }`: delete everything kept under that id. |
 
 ## Price-drop alerts
 

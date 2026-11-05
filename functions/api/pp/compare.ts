@@ -4,13 +4,15 @@
  * installable web app (a product shared from the Daraz or Cartup app).
  *
  *   GET  ?link=<product URL, or the text an app shares>&name=<the page's product title>
- *   POST { "link": "...", "name": "..." }
+ *   POST { "link": "...", "name": "...", "visitor"?: "..." }   visitor: from the site, for a shopper
+ *        who said yes to search history (worker/profiles.ts); the extension never sends one
  *
  * The comparison itself lives in worker/compare.ts.
  */
 
 import { compare, resolveShared } from '../../../worker/compare.ts'
 import { json, preflight } from '../../../worker/http.ts'
+import { visitorKey } from '../../../worker/profiles.ts'
 import { logAsk } from '../../../worker/store.ts'
 import type { Env } from '../../../worker/types.ts'
 
@@ -18,7 +20,7 @@ type Ctx = { request: Request; env: Env; waitUntil(p: Promise<unknown>): void }
 
 const clean = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
 
-async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; name?: unknown }): Promise<Response> {
+async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; name?: unknown; visitor?: unknown }): Promise<Response> {
   const link = clean(raw.link, 600)
   const name = clean(raw.name, 200)
   if (!link) return json(request, { error: 'Share or paste a Daraz or Cartup product link.' }, 400)
@@ -26,9 +28,12 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; n
   const ref = await resolveShared(link)
   if (!ref) return json(request, { error: "That isn't a Daraz or Cartup product link." }, 400)
   const result = await compare(ref, env, { name })
-  if (env.PP_DB && !('cached' in result && result.cached)) {
+  const visitor = await visitorKey(env, raw.visitor)
+  // A cached repeat still belongs in a shopper's history.
+  if (env.PP_DB && (visitor || !('cached' in result && result.cached))) {
     waitUntil(
       logAsk(env.PP_DB, {
+        visitor,
         askedAt,
         query: ref.url,
         mode: 'compare',
@@ -54,6 +59,6 @@ export const onRequestGet = (ctx: Ctx) => {
 }
 
 export const onRequestPost = async (ctx: Ctx) => {
-  const body = (await ctx.request.json().catch(() => null)) as { link?: unknown; name?: unknown } | null
+  const body = (await ctx.request.json().catch(() => null)) as { link?: unknown; name?: unknown; visitor?: unknown } | null
   return body ? answer(ctx, body) : json(ctx.request, { error: 'Send JSON: { "link": "..." }' }, 400)
 }

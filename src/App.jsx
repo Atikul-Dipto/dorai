@@ -3,6 +3,7 @@ import './App.css'
 import './agent/agent.css'
 import AskAgent from './agent/AskAgent.jsx'
 import GetDorAI from './agent/GetDorAI.jsx'
+import SearchHistory from './agent/SearchHistory.jsx'
 import VoucherBoard from './agent/VoucherBoard.jsx'
 import Watchlist from './agent/Watchlist.jsx'
 import { getStats, getVouchers } from './agent/api.js'
@@ -128,6 +129,7 @@ export default function App() {
 
           <footer className="footer">
             <span>{t.footer}</span>
+            <SearchHistory />
             <a href="https://github.com/Atikul-Dipto/dorai" target="_blank" rel="noreferrer">
               GitHub
             </a>

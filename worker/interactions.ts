@@ -3,7 +3,8 @@
  * store, save it, take it off the watchlist, or say it's not what they
  * wanted. Recorded so the agent can learn which picks people actually want
  * (docs/ARCHITECTURE.md, "Learning events"); nothing in ranking uses them
- * yet. No visitor information is kept: the search, the offer, the act, when.
+ * yet. Each holds the search, the offer, the act and when; a visitor only if
+ * the shopper said yes to search history (worker/profiles.ts).
  */
 
 import type { RowRelation } from './matching.ts'
@@ -45,16 +46,16 @@ export function readInteraction(raw: unknown): Interaction | null {
 }
 
 /** Records them, each with the canonical product its offer is linked to now. */
-export async function recordInteractions(db: D1Database, events: Interaction[], now: string): Promise<void> {
+export async function recordInteractions(db: D1Database, events: Interaction[], now: string, visitor: string | null = null): Promise<void> {
   if (!events.length) return
   await db.batch(
     events.map((e) =>
       db
         .prepare(
-          `INSERT INTO interactions (at, kind, query, item_id, site, slot, relation, position, price, product_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT product_id FROM listings WHERE item_id = ?))`,
+          `INSERT INTO interactions (at, kind, query, item_id, site, slot, relation, position, price, product_id, visitor)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT product_id FROM listings WHERE item_id = ?), ?)`,
         )
-        .bind(now, e.kind, e.query, e.itemId, e.site, e.slot, e.relation, e.position, e.price, e.itemId),
+        .bind(now, e.kind, e.query, e.itemId, e.site, e.slot, e.relation, e.position, e.price, e.itemId, visitor),
     ),
   )
 }

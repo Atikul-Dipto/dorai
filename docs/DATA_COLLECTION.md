@@ -41,6 +41,9 @@ pauses scheduled workflows in a repository with no commits for 60 days.
   here). When Daraz bot-checks, the answer says Daraz couldn't be reached.
 - **robots.txt** is not followed for Othoba's search page (the owner's
   decision, 2026-11-03); every other line above still holds.
-- **No visitor data:** questions are logged without who asked; learning
-  events hold the search, the offer and the act only; rate limits count
-  salted hashes of addresses.
+- **Visitor data only by consent:** questions and learning events are logged
+  without who did them, unless the shopper says yes on the page. Then both
+  carry a salted hash of a random id kept in their browser, so `/profiles` can
+  read them together. No name, address or account. Turning it off deletes that
+  history, the link goes after a year, and the extension never sends an id.
+  Rate limits count salted hashes of addresses.

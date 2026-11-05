@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>DorAI visitor profiles</title>
+  <link rel="icon" type="image/png" href="/favicon-32.png" />
+  <!-- What each shopper who said yes to search history looks for
+       (worker/profiles.ts). Calls /api/pp/profiles with the ADMIN_TOKEN, kept
+       in this browser only. Everything shown was typed by a visitor or read
+       from a store, so all of it goes through esc(). -->
+  <style>
+    :root { --purple: #522d60; --plum: #80426e; --peach: #f2a67b; --gold: #ffd38b; --ink: #2e1a36; --muted: #6f5f77; --line: #ece1e8; --tint: #faf5f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 system-ui, 'Segoe UI', sans-serif; color: var(--ink); background: #fff; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+    h1 { margin: 0 0 4px; color: var(--purple); font-size: 24px; }
+    h2 { margin: 0; color: var(--purple); font-size: 18px; }
+    h3 { margin: 20px 0 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    .muted { color: var(--muted); }
+    form { display: flex; gap: 8px; margin: 16px 0; }
+    input { flex: 1; height: 40px; padding: 0 12px; border: 1px solid #dccbd6; border-radius: 10px; font: inherit; }
+    form button { height: 40px; padding: 0 16px; color: #fff; background: var(--plum); border: 0; border-radius: 10px; font: inherit; font-weight: 700; cursor: pointer; }
+    .layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; margin-top: 16px; }
+    .visitor { display: block; width: 100%; margin: 0 0 8px; padding: 10px 12px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 12px; font: inherit; text-align: left; cursor: pointer; }
+    .visitor:hover, .visitor.open { border-color: var(--plum); background: var(--tint); }
+    .visitor b { display: block; font-family: ui-monospace, monospace; }
+    .visitor span { display: block; color: var(--muted); font-size: 13px; }
+    .panel { padding: 16px; border: 1px solid var(--line); border-radius: 14px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+    .chips li { padding: 3px 11px; background: var(--tint); border-radius: 999px; font-size: 13px; overflow-wrap: anywhere; }
+    .chips.key li { color: #fff; background: var(--purple); font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    td { padding: 6px 8px 6px 0; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+    td.num { white-space: nowrap; text-align: right; }
+    a { color: var(--plum); font-weight: 600; text-decoration: none; }
+    .tag { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .daraz { background: var(--peach); } .cartup { background: var(--gold); } .othoba { background: #e3c7da; }
+    .act { font-weight: 700; white-space: nowrap; }
+    .when { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+    .empty { padding: 24px; background: var(--tint); border-radius: 14px; text-align: center; }
+    @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Visitor profiles</h1>
+    <p class="muted">Shoppers who said yes to search history, each a nameless ID for one browser: the same person on a phone and a laptop is two visitors. Everyone else's searches aren't linked to anyone and aren't here. Times are Bangladesh time.</p>
+    <form id="login"><input id="token" type="password" placeholder="Admin token" autocomplete="off" /><button>Open</button></form>
+    <div class="layout" id="layout" hidden>
+      <section id="visitors"></section>
+      <section id="profile"></section>
+    </div>
+    <p class="empty" id="message" hidden></p>
+  </main>
+  <script>
+    const KEY = 'dorai:admin-token'
+    const ACTS = { search: 'Searched', open: 'Opened', save: 'Saved', unsave: 'Unsaved', not_this: 'Not this' }
+    const MODES = { product: 'named a product', need: 'described a need', compare: 'pasted a link', failed: 'failed' }
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+    const money = (v) => (v == null ? '' : `৳${Math.round(v).toLocaleString('en-US')}`)
+    const when = (at) => new Date(at).toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    const short = (key) => `#${esc(key.slice(0, 8))}`
+    const site = (s) => `<span class="tag ${esc(s)}">${esc(s)}</span>`
+    const chips = (items, label = (i) => `${i.value} · ${i.n}`) => (items.length ? `<ul class="chips">${items.map((i) => `<li>${esc(label(i))}</li>`).join('')}</ul>` : '<p class="muted">Nothing yet.</p>')
+    const link = (name, url) => (/^https:\/\//.test(url ?? '') ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(name)}</a>` : esc(name))
+    let token = ''
+    try { token = localStorage.getItem(KEY) ?? '' } catch {}
+
+    const call = (path) => fetch(`/api/pp/profiles${path}`, { headers: { authorization: `Bearer ${token}` } })
+
+    function say(text) {
+      const message = document.getElementById('message')
+      message.textContent = text
+      message.hidden = false
+    }
+
+    async function load() {
+      if (!token) return
+      const r = await call('')
+      if (r.status === 403) return say("That token isn't the admin token.")
+      const { visitors } = await r.json()
+      document.getElementById('login').hidden = true
+      if (!visitors.length) return say('Nobody has said yes to search history yet.')
+      document.getElementById('layout').hidden = false
+      document.getElementById('visitors').innerHTML = visitors.map((v) => `
+        <button class="visitor" data-key="${esc(v.key)}"><b>${short(v.key)}</b>
+          <span>${esc(when(v.lastSeen))}</span>
+          <span>${v.searches} searches · ${v.opens} opened · ${v.saves} saved</span></button>`).join('')
+      show(visitors[0].key)
+    }
+
+    async function show(key) {
+      document.querySelectorAll('.visitor').forEach((b) => b.classList.toggle('open', b.dataset.key === key))
+      const r = await call(`?id=${encodeURIComponent(key)}`)
+      if (!r.ok) return
+      const { firstSeen, lastSeen, pattern: p, timeline } = await r.json()
+      const facts = [
+        `${p.searches} searches`,
+        `${p.differentSearches} different`,
+        `${p.openedFrom} of those led to a store`,
+        p.priceRange && `opens ${money(p.priceRange.low)} to ${money(p.priceRange.high)}, middle ${money(p.priceRange.middle)}`,
+        p.partsOfDay[0] && `mostly in the ${p.partsOfDay[0].value}`,
+      ].filter(Boolean)
+      document.getElementById('profile').innerHTML = `<div class="panel">
+        <h2>${short(key)}</h2>
+        <p class="muted">First seen ${esc(when(firstSeen))}, last seen ${esc(when(lastSeen))}</p>
+        <ul class="chips key">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
+        <h3>How they search</h3>${chips(p.howTheySearch, (i) => `${MODES[i.value] ?? i.value} · ${i.n}`)}
+        <h3>Searched more than once</h3>${chips(p.searchedAgain)}
+        <h3>Stores opened</h3>${chips(p.stores)}
+        <h3>Brands looked at</h3>${chips(p.brands)}
+        <h3>Products looked at</h3>
+        ${p.products.length ? `<table>${p.products.map((o) => `<tr><td>${site(o.site)} ${link(o.name ?? o.itemId, o.url)}</td><td class="num">${money(o.price)}</td><td class="num">${o.opens} opened · ${o.saves} saved</td></tr>`).join('')}</table>` : '<p class="muted">Nothing yet.</p>'}
+        <h3>Said wasn't what they wanted</h3>
+        ${p.notWanted.length ? `<table>${p.notWanted.map((n) => `<tr><td>${site(n.site)} ${esc(n.name ?? '')}</td><td>for "${esc(n.query)}"</td></tr>`).join('')}</table>` : '<p class="muted">Nothing yet.</p>'}
+        <h3>Latest activity</h3>
+        <table>${timeline.map((a) => `<tr><td class="when">${esc(when(a.at))}</td><td class="act">${esc(ACTS[a.act] ?? a.act)}</td>
+          <td>${a.act === 'search' ? `${esc(a.query)} <span class="muted">(${a.results} results)</span>` : `${site(a.site)} ${esc(a.name ?? '')} <span class="muted">${money(a.price)}</span>`}</td></tr>`).join('')}</table>
+      </div>`
+    }
+
+    document.getElementById('login').addEventListener('submit', (e) => {
+      e.preventDefault()
+      token = document.getElementById('token').value.trim()
+      try { localStorage.setItem(KEY, token) } catch {}
+      document.getElementById('message').hidden = true
+      load()
+    })
+    document.getElementById('visitors').addEventListener('click', (e) => {
+      const b = e.target.closest('.visitor')
+      if (b) show(b.dataset.key)
+    })
+    load()
+  </script>
+</body>
+</html>

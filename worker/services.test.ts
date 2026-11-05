@@ -12,13 +12,14 @@ import { run } from './agent.ts'
 import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
 import { readInteraction, recordInteractions, summarizeInteractions } from './interactions.ts'
-import { recordListings } from './store.ts'
+import { forgetProfile, listProfiles, patternOf, readProfile, visitorKey } from './profiles.ts'
+import { logAsk, recordListings } from './store.ts'
 import type { D1Database, D1Statement, Listing } from './types.ts'
 import { dropWorthTelling, putWatches, readWatch } from './watchlist.ts'
 
 function freshDb(): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(':memory:')
-  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
+  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql', '0005_visitor_profiles.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
   // Plain objects, as D1 returns (node:sqlite's rows have no prototype).
   const plain = (row: unknown) => (row ? { ...(row as object) } : null)
   const statement = (sql: string, params: unknown[] = []): D1Statement => ({
@@ -33,6 +34,93 @@ function freshDb(): { db: D1Database; raw: DatabaseSync } {
 const listing = (itemId: string, site: Listing['site'], name: string, price: number): Listing => ({
   site, itemId, name, url: `https://othoba.com/${itemId}`, image: '', price, originalPrice: null, discountPercent: null, seller: '', brand: '',
   rating: null, reviews: 0, sold: '', inStock: true, location: '', officialStore: false, badges: [], highlights: [], relevance: 0, matchedFeatures: [],
+})
+
+const askedBy = (db: D1Database, visitor: string | null, askedAt: string, query = 'Awei T50', mode = 'product') =>
+  logAsk(db, { visitor, askedAt, query, mode, intentSource: 'rules', results: 3, bestPrice: 1100, bestFinal: 1100, voucherApplied: false, totalMs: 5, timings: {}, error: null })
+const act = (kind: string, price = 1100) => readInteraction({ kind, query: 'Awei T50', itemId: '111', site: 'daraz', slot: 'pick', price })!
+
+test('visitor profiles: only a real id counts, and only its salted hash is stored', async () => {
+  const env = { RATE_SALT: 'salt' }
+  const id = 'a'.repeat(32)
+  const key = (await visitorKey(env, id))!
+  assert.equal(await visitorKey(env, undefined), null)
+  assert.equal(await visitorKey(env, 'not-an-id'), null)
+  assert.equal(await visitorKey(env, id.toUpperCase()), null)
+  assert.equal(await visitorKey(env, id), key)
+  assert.notEqual(await visitorKey({ RATE_SALT: 'other' }, id), key)
+  assert.ok(!key.includes(id.slice(0, 8)))
+})
+
+test("visitor profiles: a profile holds that visitor's rows and no one else's", async () => {
+  const { db } = freshDb()
+  const at = '2026-11-03T14:00:00Z'
+  await recordListings(db, [{ ...listing('111', 'daraz', 'Awei T50 Wireless Earbuds', 1100), brand: 'Awei' }], at)
+  await askedBy(db, 'me', at)
+  await askedBy(db, 'me', '2026-11-03T14:05:00Z', 'awei t50 ')
+  await askedBy(db, 'me', '2026-11-03T14:10:00Z', 'quiet fan', 'need')
+  await askedBy(db, 'someone', at, 'rice cooker')
+  await askedBy(db, null, at, 'nobody in particular')
+  await recordInteractions(db, [act('open'), act('save')], at, 'me')
+  await recordInteractions(db, [act('open', 9000)], at, 'someone')
+  await recordInteractions(db, [act('not_this')], at)
+
+  const list = (await listProfiles(db)) as { key: string; searches: number; opens: number; saves: number }[]
+  assert.deepEqual(list.map((v) => v.key).sort(), ['me', 'someone'])
+  const mine = list.find((v) => v.key === 'me')!
+  assert.deepEqual([mine.searches, mine.opens, mine.saves], [3, 1, 1])
+
+  const profile = (await readProfile(db, 'me'))!
+  const p = profile.pattern
+  assert.equal(p.searches, 3)
+  assert.equal(p.differentSearches, 2)
+  assert.deepEqual(p.searchedAgain, [{ value: 'awei t50', n: 2 }])
+  assert.deepEqual(p.howTheySearch, [{ value: 'product', n: 2 }, { value: 'need', n: 1 }])
+  assert.equal(p.openedFrom, 1)
+  assert.deepEqual(p.brands, [{ value: 'Awei', n: 2 }])
+  assert.deepEqual(p.priceRange, { low: 1100, middle: 1100, high: 1100 })
+  assert.deepEqual(p.partsOfDay, [{ value: 'evening', n: 3 }]) // 14:00 UTC is 20:00 in Bangladesh
+  assert.deepEqual(p.products.map((o) => [o.name, o.opens, o.saves]), [['Awei T50 Wireless Earbuds', 1, 1]])
+  assert.equal(profile.timeline.length, 5)
+  assert.ok(!profile.timeline.some((a) => a.query === 'rice cooker' || a.query === 'nobody in particular'))
+  assert.equal(await readProfile(db, 'no one'), null)
+})
+
+test('visitor profiles: the pattern leaves out what says nothing', () => {
+  const p = patternOf([], [{ at: '2026-11-03T02:00:00Z', kind: 'open', query: 'fan', itemId: '1', site: 'othoba', price: null, name: null, url: null, brand: 'No Brand' }])
+  assert.deepEqual(p.brands, [])
+  assert.equal(p.priceRange, null)
+  assert.equal(p.openedFrom, 0)
+  assert.deepEqual(p.stores, [{ value: 'othoba', n: 1 }])
+})
+
+test('visitor profiles: turning it off deletes that history and nothing else', async () => {
+  const { db, raw } = freshDb()
+  const at = '2026-11-03T14:00:00Z'
+  await askedBy(db, 'me', at)
+  await askedBy(db, 'someone', at)
+  await askedBy(db, null, at)
+  await recordInteractions(db, [act('open')], at, 'me')
+  await recordInteractions(db, [act('open')], at)
+  await forgetProfile(db, 'me')
+  assert.equal(await readProfile(db, 'me'), null)
+  assert.ok(await readProfile(db, 'someone'))
+  assert.deepEqual({ ...(raw.prepare('SELECT COUNT(*) AS n FROM asks').get() as object) }, { n: 2 })
+  assert.deepEqual({ ...(raw.prepare('SELECT COUNT(*) AS n FROM interactions').get() as object) }, { n: 1 })
+})
+
+test('visitor profiles: after a year the rows stay and the link goes, in the daily run only', async () => {
+  const { db, raw } = freshDb()
+  await askedBy(db, 'me', '2025-01-01T00:00:00Z', 'old')
+  await askedBy(db, 'me', '2026-11-01T00:00:00Z', 'recent')
+  await recordInteractions(db, [act('open')], '2025-01-01T00:00:00Z', 'me')
+  const linked = () => (raw.prepare('SELECT COUNT(*) AS n FROM (SELECT visitor FROM asks UNION ALL SELECT visitor FROM interactions) WHERE visitor IS NOT NULL').get() as { n: number }).n
+  await runJobs({ PP_DB: db }, new Date('2026-11-03T12:00:00Z'))
+  assert.equal(linked(), 3)
+  await runJobs({ PP_DB: db }, new Date('2026-11-03T00:05:00Z'))
+  assert.equal(linked(), 1)
+  assert.deepEqual({ ...(raw.prepare('SELECT COUNT(*) AS n FROM asks').get() as object) }, { n: 2 })
+  assert.equal((await readProfile(db, 'me'))?.pattern.searches, 1)
 })
 
 test('a device proves itself with its token; only its hash is stored', async () => {

@@ -11,7 +11,9 @@
  *      alert (worker/notify.ts) where a drop is worth telling;
  *   4. tidies the queue;
  *   5. runs the product matching engine (worker/catalog.ts) over a batch of
- *      listings not matched to a canonical product yet.
+ *      listings not matched to a canonical product yet;
+ *   6. once a day, drops the link to a visitor from rows over a year old
+ *      (worker/profiles.ts).
  *
  * A few checks per run on purpose: Daraz bot-checks bursts from Cloudflare,
  * and the free plan's CPU budget per run is small. 3 per 10 minutes is up to
@@ -20,6 +22,7 @@
 
 import { matchNewListings } from '../worker/catalog.ts'
 import { notify } from '../worker/notify.ts'
+import { expireProfiles } from '../worker/profiles.ts'
 import { claim, complete, fail, tidy } from '../worker/queue.ts'
 import { recordListings } from '../worker/store.ts'
 import { type Site, STORES } from '../worker/stores.ts'
@@ -97,6 +100,8 @@ export async function runJobs(env: Env, now = new Date()): Promise<{ checked: nu
   } catch {
     // tried again next run
   }
+  // The first run after midnight UTC.
+  if (now.getUTCHours() === 0 && now.getUTCMinutes() < 10) await expireProfiles(db, now).catch(() => {})
   return done
 }
 

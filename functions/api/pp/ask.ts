@@ -7,11 +7,13 @@
  *        Either may be empty, not both.
  *   GET  ?name=...&details=...    the same
  *   GET  ?q=... / POST { "query" } one-box form: the agent works out whether it's a name or a description
+ *   POST may add "visitor": the id of a shopper who said yes to search history (worker/profiles.ts)
  */
 
 import { type Answer, type AskInput, run } from '../../../worker/agent.ts'
 import { readCache, searchKey, writeCache } from '../../../worker/cache.ts'
 import { json, preflight } from '../../../worker/http.ts'
+import { visitorKey } from '../../../worker/profiles.ts'
 import { logAsk } from '../../../worker/store.ts'
 import type { Env } from '../../../worker/types.ts'
 
@@ -30,11 +32,12 @@ function readInput(raw: { name?: unknown; details?: unknown; query?: unknown }):
   return query.length >= 2 ? { query } : 'Type a product name, or what you need.'
 }
 
-async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; details?: unknown; query?: unknown }): Promise<Response> {
+async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; details?: unknown; query?: unknown; visitor?: unknown }): Promise<Response> {
   const input = readInput(raw)
   if (typeof input === 'string') return json(request, { error: input }, 400)
   const logged = input.query ?? [input.name, input.details].filter(Boolean).join(' — ')
   const askedAt = new Date().toISOString()
+  const visitor = await visitorKey(env, raw.visitor)
   try {
     // The same search within 15 minutes is answered from the cache; an answer
     // where a store couldn't be reached isn't kept.
@@ -48,6 +51,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
     if (env.PP_DB) {
       waitUntil(
         logAsk(env.PP_DB, {
+          visitor,
           askedAt,
           query: logged,
           mode: result.intent.mode,
@@ -67,7 +71,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
     const message = e instanceof Error ? e.message : String(e)
     if (env.PP_DB) {
       waitUntil(
-        logAsk(env.PP_DB, { askedAt, query: logged, mode: '', intentSource: '', results: 0, bestPrice: null, bestFinal: null, voucherApplied: false, totalMs: Date.now() - Date.parse(askedAt), timings: {}, error: message.slice(0, 300) }).catch(() => {}),
+        logAsk(env.PP_DB, { visitor, askedAt, query: logged, mode: '', intentSource: '', results: 0, bestPrice: null, bestFinal: null, voucherApplied: false, totalMs: Date.now() - Date.parse(askedAt), timings: {}, error: message.slice(0, 300) }).catch(() => {}),
       )
     }
     return json(request, { error: `Couldn't reach Daraz just now (${message}). Try again in a moment.` }, 502)
@@ -80,7 +84,7 @@ export const onRequestGet = (ctx: Ctx) => {
 }
 
 export const onRequestPost = async (ctx: Ctx) => {
-  const body = (await ctx.request.json().catch(() => null)) as { name?: unknown; details?: unknown; query?: unknown } | null
+  const body = (await ctx.request.json().catch(() => null)) as { name?: unknown; details?: unknown; query?: unknown; visitor?: unknown } | null
   return answer(ctx, body ?? {})
 }
 

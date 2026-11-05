@@ -3,6 +3,14 @@
 What changed for shoppers and for the system, newest first. Commit history
 has the detail.
 
+## 2026-11-06
+
+- **Visitor profiles.** A shopper can say yes to search history. Their searches,
+  opened offers and saves are then linked by a salted hash of a random id in
+  their browser, and the owner reads the pattern at `/profiles`. Nothing is
+  linked without that yes, no name or address is kept, turning it off deletes
+  the history, and the link goes after a year. The extension sends no id.
+
 ## 2026-11-05
 
 - **New English type:** Poppins Bold for headings and prices, Gill Sans for

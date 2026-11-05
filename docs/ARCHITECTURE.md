@@ -82,7 +82,8 @@ flowchart TB
 | Data layer | D1 `price-pulse`, schema in `worker/migrations/` | Plays the diagram's PostgreSQL role (kept on D1 by choice: free, already holds the data, no extra service). See `docs/SCHEMA.md`. |
 | Price history | D1 `price_history` | A point per listing when the price changes or the last point is >6h old; written by every answer and every scheduled check. |
 | Search & price cache | `worker/cache.ts` (Cache API) | Comparisons 6 hours, identical searches 15 minutes; never an answer where a store couldn't be reached. |
-| Learning events | `worker/interactions.ts`, `/api/pp/events`, `src/agent/events.js` | What shoppers do with an answer: open an offer at its store, save or unsave it, or say a pick is "not what I was looking for". Each event holds the search, the offer, pick or "More" row, its relation and position, the price and canonical product; no visitor information. Recorded only, so far: ranking will learn from them once there are enough. |
+| Learning events | `worker/interactions.ts`, `/api/pp/events`, `src/agent/events.js` | What shoppers do with an answer: open an offer at its store, save or unsave it, or say a pick is "not what I was looking for". Each event holds the search, the offer, pick or "More" row, its relation and position, the price and canonical product. Recorded only, so far: ranking will learn from them once there are enough. |
+| Visitor profiles | `worker/profiles.ts`, `/api/pp/profiles`, `/profiles`, `src/agent/SearchHistory.jsx`, `src/agent/visitor.js` | For a shopper who says yes on the page: their searches and acts read together, as the pattern of what they look for, for the owner. Without that yes, nothing is linked to anyone. |
 | Index builders (PC + nightly) | `agent/cartup_index.py`, `agent/othoba_index.py`, `.github/workflows/nightly-indexes.yml` | Rebuild the Cartup and Othoba name indexes in D1 every night on GitHub Actions; see `docs/DATA_COLLECTION.md`. |
 
 ## Search: one question, step by step
@@ -198,5 +199,5 @@ public vouchers. See `docs/OPERATIONS.md`.
 
 - Prices only ever come from the stores, live or as recorded history; nothing is estimated.
 - No signed or anti-abuse store APIs (Daraz mtop, Cartup's signed `sxsrf` search, Othoba's hidden search key) and no evading bot checks. Public pages are read at a polite rate: Othoba's search page is read although its robots.txt asks robots not to (the owner's decision, 2026-11-03), one page per question. The scheduled checks are deliberately few per run.
-- No accounts and no personal data: a device is a random id; the asks log has no visitor information; rate limits count salted hashes of addresses.
+- No accounts, names or addresses: a device is a random id, and rate limits count salted hashes of addresses. Searches and learning events are linked to a visitor only after that visitor says yes on the page, by a salted hash of a random id in their browser. Turning it off deletes that history, the link goes after a year, and the extension never sends an id.
 - Free plan only.

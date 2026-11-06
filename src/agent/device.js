@@ -75,7 +75,12 @@ const keyBytes = (b64) => Uint8Array.from(atob(b64.replace(/-/g, '+').replace(/_
 export async function enablePush(device, vapidPublicKey) {
   if ((await Notification.requestPermission()) !== 'granted') throw Object.assign(new Error('denied'), { denied: true })
   const registration = await navigator.serviceWorker.ready
-  const subscription = (await registration.pushManager.getSubscription()) ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(vapidPublicKey) }))
+  const subscription =
+    (await registration.pushManager.getSubscription()) ??
+    (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(vapidPublicKey) }).catch((e) => {
+      // The browser's own push service refused. Brave keeps Google's off by default.
+      throw e.name === 'AbortError' ? Object.assign(new Error(e.message), { pushService: true }) : e
+    }))
   await call('/push', { method: 'PUT', token: device.token, body: { endpoint: subscription.endpoint } })
 }
 

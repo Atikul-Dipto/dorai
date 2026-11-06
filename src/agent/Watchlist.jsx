@@ -41,7 +41,8 @@ function AlertsPanel({ device, setDevice }) {
     try {
       await work()
     } catch (e) {
-      setMessage(e.denied ? t.alertsDenied : e.message || t.alertsFailed)
+      if (e.pushService) setMessage(navigator.brave ? t.alertsBrave : t.alertsPushService)
+      else setMessage(e.denied ? t.alertsDenied : e.message || t.alertsFailed)
     } finally {
       setBusy(false)
     }

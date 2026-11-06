@@ -5,6 +5,9 @@ has the detail.
 
 ## 2026-11-07
 
+- **Alerts in Brave.** Brave keeps Google's push service off by default, so it
+  refuses every push subscription. The watchlist now says which setting to turn
+  on, instead of showing the browser's own error.
 - **Accounts and a guest trial.** Shoppers can create an account with an email
   and password. A guest gets 5 searches, and each store shows its pick and 2
   more rows; an account searches freely and sees every row. A search that fails

@@ -15,6 +15,7 @@ import { runJobs } from '../jobs/index.ts'
 import { admit, forGuest, GUEST_ROWS, GUEST_SEARCHES, giveBack, guestCount, historyKey } from './access.ts'
 import { deleteAccount, logIn, profileKey, sessionUser, setHistory } from './accounts.ts'
 import { run } from './agent.ts'
+import { parseProductPage as parseDarazPage } from './daraz.ts'
 import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
 import { readInteraction, recordInteractions, summarizeInteractions } from './interactions.ts'
@@ -323,15 +324,83 @@ test("compare: the site's links count for a guest; the extension's GET stays ope
 })
 
 test('a guest sees each store\'s pick and first rows; the answer says how many more an account shows', () => {
-  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ i }))
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ listing: { name: `Offer ${i}` } }))
   const answer = { hotDeal: 'kept', stores: [{ site: 'daraz', recommended: 'pick', matches: rows(GUEST_ROWS + 5) }, { site: 'othoba', recommended: 'pick', matches: rows(GUEST_ROWS) }] }
-  const seen = forGuest(answer) as unknown as { hotDeal: string; stores: { recommended: string; matches: unknown[]; hiddenMatches?: number }[] }
+  const seen = forGuest(answer, 'something else') as unknown as { hotDeal: string; stores: { recommended: string; matches: unknown[]; hiddenMatches?: number }[] }
   assert.equal(seen.hotDeal, 'kept')
   assert.equal(seen.stores[0].recommended, 'pick')
   assert.equal(seen.stores[0].matches.length, GUEST_ROWS)
   assert.equal(seen.stores[0].hiddenMatches, 5)
   assert.equal(seen.stores[1].hiddenMatches, undefined)
   assert.equal(answer.stores[0].matches.length, GUEST_ROWS + 5) // what's cached stays whole
+
+  // The exact name they searched for is never held back, however far down it ranks.
+  const named = forGuest(answer, 'offer  6') as unknown as { stores: { matches: { listing: { name: string } }[]; hiddenMatches?: number }[] }
+  assert.deepEqual(named.stores[0].matches.map((m) => m.listing.name), ['Offer 0', 'Offer 1', 'Offer 6'])
+  assert.equal(named.stores[0].hiddenMatches, 4)
+})
+
+const CARTUP_DOWN = '<html><body><p>The product is temporarily unavailable. </p></body></html>'
+const LINK = 'https://www.cartup.com/product/herman_chilli_mayanise_500ml_637903106336006_nw7yc5'
+
+test("a listing that's gone: the site searches its name instead, and says so", async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const real = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.includes('/api/pp/part')) return partPost({ request: new Request(url, init), env })
+    if (url.includes('/product/')) return new Response(CARTUP_DOWN)
+    if (url.includes('daraz.com.bd')) return Response.json({ mods: { listItems: [{ itemId: '555', name: 'Herman Chilli Mayanise 500ml', price: '300', itemUrl: '//www.daraz.com.bd/products/herman-i555.html', sellerName: 'Shop', ratingScore: '4.5', review: '20' }] } })
+    return new Response('', { status: 404 })
+  }) as typeof fetch
+  try {
+    const shown = await comparePost(page.ctx('compare', 'POST', { link: LINK }))
+    assert.equal(shown.status, 200)
+    const body = (await shown.json()) as { fromLink: { label: string }; stores: { site: string; recommended: { listing: { itemId: string } } | null }[] }
+    assert.deepEqual(body.fromLink, { site: 'cartup', label: 'Cartup' })
+    assert.equal(body.stores.find((s) => s.site === 'daraz')?.recommended?.listing.itemId, '555')
+
+    // The extension can't show that, so it gets the reason, in plain words.
+    const refused = await compareGet(page.ctx(`compare?link=${encodeURIComponent(LINK)}`, 'GET'))
+    assert.equal(refused.status, 502)
+    assert.deepEqual(await refused.json(), { error: "Cartup isn't showing this listing right now." })
+  } finally {
+    globalThis.fetch = real
+  }
+})
+
+test("a gone listing with no name worth searching gives a free search back", async () => {
+  const { db, raw } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const real = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (url.includes('/api/pp/part')) return partPost({ request: new Request(url, init), env })
+    return url.includes('catalog') ? Response.json({ mods: { listItems: [] } }) : new Response('', { status: 404 })
+  }) as typeof fetch
+  try {
+    const answer = page.keep(await comparePost(page.ctx('compare', 'POST', { link: 'https://www.daraz.com.bd/products/3-1-i344199128.html' })))
+    assert.equal(answer.status, 502)
+    assert.deepEqual(await answer.json(), { error: "Daraz isn't showing this listing right now.", guest: { used: 0, limit: 5 } })
+    assert.deepEqual({ ...(raw.prepare('SELECT used FROM guests').get() as object) }, { used: 0 })
+  } finally {
+    globalThis.fetch = real
+  }
+})
+
+test("a Daraz product its search doesn't list is read from its own page", () => {
+  const html = `<script type="application/ld+json">{"@type":"Product","name":" R1s Selfie Stick ","image":["https://static.test/a.jpg"],"brand":{"name":"No Brand"},"offers":{"@type":"AggregateOffer","availability":"https://schema.org/InStock"}}</script>
+    <script>var pdpTrackingData = "{\\"pdt_sku\\":\\"320314671\\",\\"pdt_price\\":\\"৳ 1,350\\"}";</script>`
+  const listing = parseDarazPage(html, '320314671', 'https://www.daraz.com.bd/products/r1s-i320314671.html')!
+  assert.equal(listing.name, 'R1s Selfie Stick')
+  assert.equal(listing.price, 1350)
+  assert.equal(listing.inStock, true)
+  assert.equal(listing.image, 'https://static.test/a.jpg')
+  assert.equal(parseDarazPage('<html>a page with no product</html>', '1', 'x'), null)
+  assert.equal(parseDarazPage(html.replace('InStock', 'OutOfStock'), '1', 'x')?.inStock, false)
 })
 
 test("accounts: search history needs a yes, follows the account, and a guest's joins it", async () => {

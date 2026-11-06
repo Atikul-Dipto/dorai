@@ -95,6 +95,7 @@ counted.
   beyond its pick, with `hiddenMatches` saying how many more an account sees.
 - Past the limit they answer `401 { error, needLogin: true, guest }`.
 - `GET /compare` is the extension's and isn't counted: it has no login.
+- A row with exactly the name searched for is never held back from a guest.
 
 | Endpoint | Access | What |
 |---|---|---|

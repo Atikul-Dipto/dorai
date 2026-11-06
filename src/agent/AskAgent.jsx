@@ -463,6 +463,11 @@ function Answer({ answer }) {
 
   return (
     <section className="answer" aria-live="polite">
+      {answer.fromLink && (
+        <p className="link-gone" role="status">
+          {t.linkGone(answer.fromLink.label)}
+        </p>
+      )}
       <Understood intent={answer.intent} />
       <p className="searched-where">{t.searched(where, clock(answer.checkedAt, lang))}</p>
 

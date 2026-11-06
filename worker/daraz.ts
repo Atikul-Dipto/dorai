@@ -101,16 +101,67 @@ export async function search(
 export async function productTitle(productUrl: string): Promise<string | null> {
   const response = await fetch(productUrl, { headers: { ...HEADERS, accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!response.ok) return null
-  const html = await response.text()
+  const name = schemaProduct(await response.text())?.name
+  return typeof name === 'string' ? name.trim() : null
+}
+
+interface SchemaProduct {
+  '@type'?: string
+  name?: unknown
+  image?: unknown
+  brand?: { name?: unknown }
+  offers?: { availability?: unknown }
+}
+
+function schemaProduct(html: string): SchemaProduct | null {
   for (const m of html.matchAll(/<script[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/g)) {
     try {
-      const data = JSON.parse(m[1]) as { '@type'?: string; name?: unknown }
-      if (data['@type'] === 'Product' && typeof data.name === 'string') return data.name.trim()
+      const data = JSON.parse(m[1]) as SchemaProduct
+      if (data['@type'] === 'Product') return data
     } catch {
       // not JSON: skip
     }
   }
   return null
+}
+
+/** One product page -> Listing: name, photo, brand and stock from its schema.org data, the price from its tracking data. */
+export function parseProductPage(html: string, itemId: string, url: string): Listing | null {
+  const data = schemaProduct(html)
+  const price = /pdt_price\\?"\s*:\s*\\?"৳\s*([\d,]+(?:\.\d+)?)/.exec(html)
+  if (typeof data?.name !== 'string' || !price) return null
+  const brand = typeof data.brand?.name === 'string' ? data.brand.name : ''
+  return normalizeListing({
+    site: 'daraz',
+    itemId,
+    name: data.name.trim(),
+    url,
+    image: Array.isArray(data.image) ? String(data.image[0] ?? '') : '',
+    price: Number(price[1].replace(/,/g, '')),
+    originalPrice: null,
+    discountPercent: null,
+    seller: '',
+    brand,
+    rating: null,
+    reviews: 0,
+    sold: '',
+    inStock: String(data.offers?.availability ?? '').endsWith('InStock'),
+    location: '',
+    officialStore: false,
+    badges: [],
+    highlights: [],
+    relevance: 0,
+    matchedFeatures: [],
+  })
+}
+
+/**
+ * A listing read from its own page, for a link Daraz's search doesn't list
+ * (the same title can have too many sellers for that one to show up).
+ */
+export async function fetchProduct(url: string, itemId: string): Promise<Listing | null> {
+  const response = await fetch(url, { headers: { ...HEADERS, accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
+  return response.ok ? parseProductPage(await response.text(), itemId, url) : null
 }
 
 export async function productCategory(productUrl: string): Promise<string | null> {

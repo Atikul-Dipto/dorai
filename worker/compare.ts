@@ -17,7 +17,7 @@ import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { coreQuery } from './intent.ts'
 import { type ProductRef, readProductUrl } from './links.ts'
 import { callPart } from './parts.ts'
-import { mainModel } from './ranking.ts'
+import { mainModel, tokens } from './ranking.ts'
 import * as store from './store.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
 
@@ -78,6 +78,16 @@ export function shortKind(name: string): string | null {
 /** A Daraz address's words ("hoco-eq34-plus-rima-tws-earbuds") as a search. */
 const slugWords = (slug: string) => decodeURIComponent(slug).replace(/[-_]+/g, ' ').trim()
 
+/** A link's product can't be read: why, and a name worth searching for instead when the address gives one. */
+export interface LinkGone {
+  error: string
+  label: string
+  searchInstead: string | null
+}
+
+// "3 1" and "enchen 2" (from addresses of Bangla titles) aren't names.
+const worthSearching = (name: string) => tokens(name).filter((w) => /[a-z]{3,}/.test(w)).length >= 2
+
 const product = (name: string): Intent => ({ rawQuery: name, mode: 'product', searchQuery: name, productType: null, brand: null, minPrice: null, maxPrice: null, mustHave: [], source: 'typed' })
 
 /**
@@ -85,7 +95,7 @@ const product = (name: string): Intent => ({ rawQuery: name, mode: 'product', se
  * reads it), a better search than the address's words; prices only ever come
  * from the stores themselves.
  */
-export async function compare(ref: ProductRef, env: Env, opts: { name?: string; now?: Date } = {}): Promise<Comparison | { error: string }> {
+export async function compare(ref: ProductRef, env: Env, opts: { name?: string; now?: Date } = {}): Promise<Comparison | LinkGone> {
   const cacheKey = `https://dorai.cache/compare/v${CACHE_VERSION}/${ref.site}/${encodeURIComponent(ref.itemId)}`
   const hit = await readCache<Comparison>(cacheKey)
   if (hit) return { ...hit, cached: true }
@@ -120,21 +130,26 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   const ownIf = (site: Listing['site']) => (own && ref.site === site ? [own] : [])
   const cartupPool = unique([...ownIf('cartup'), ...found.flatMap((f) => f.listings)])
   const othobaPool = unique([...ownIf('othoba'), ...othobaFound.flatMap((f) => f.listings)])
-  const source = ref.site === 'daraz' ? darazPool.find((l) => l.itemId === ref.itemId) : own
+  let source = ref.site === 'daraz' ? darazPool.find((l) => l.itemId === ref.itemId) : own
+  if (!source && ref.site === 'daraz') {
+    source = await callPart(env, 'darazProduct', ref.url, ref.itemId).catch(() => null)
+    if (source) darazPool = unique([source, ...darazPool])
+  }
   // An unbranded product from another store goes by its photo (agent.ts
   // `photoId`), so Daraz is also searched by its kind, where a retitled copy shows up.
   const short = source && ref.site !== 'daraz' && !darazDown && !mainModel(source.name) && UNBRANDED.test(source.brand.trim()) ? shortKind(source.name) : null
   if (short) darazPool = unique([...darazPool, ...((await callPart(env, 'darazSearch', short).catch(() => null))?.listings ?? [])])
   if (!source) {
+    const label = ref.site === 'daraz' ? 'Daraz' : ref.site === 'othoba' ? 'Othoba' : 'Cartup'
     return {
+      label,
+      searchInstead: worthSearching(name) ? name : null,
       error:
-        ref.site === 'daraz'
-          ? darazDown
-            ? "Couldn't reach Daraz just now — try again in a moment."
-            : "Daraz's search doesn't show this product right now, so its price can't be checked."
+        ref.site === 'daraz' && darazDown
+          ? "Couldn't reach Daraz just now — try again in a moment."
           : ref.site === 'othoba'
             ? "That Othoba page isn't a product page, or it couldn't be read just now."
-            : "Couldn't read that Cartup product page just now.",
+            : `${label} isn't showing this listing right now.`,
     }
   }
 

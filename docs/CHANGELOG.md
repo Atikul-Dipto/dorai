@@ -5,6 +5,12 @@ has the detail.
 
 ## 2026-11-07
 
+- **Links no longer dead-end.** A Daraz link its search doesn't list is read from
+  its own page. A listing that's gone (Cartup's "temporarily unavailable", a
+  Daraz 404) now says so, and from the site its name is searched on all three
+  stores instead. It used to say the page couldn't be read, and stop.
+- **Guests always see what they named.** A row with exactly the name they
+  searched for is kept, wherever it ranks.
 - **Search no longer dies when it's busy.** A search used about 30 ms of CPU
   against the free plan's 10 ms a request. Cloudflare tolerates that now and
   then, then kills requests (error 1102) until the deployment is replaced, and

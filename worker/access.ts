@@ -14,6 +14,7 @@ import { profileKey, readCookie, sessionUser, type User } from './accounts.ts'
 import { allow, callerKey, randomId, sha256 } from './devices.ts'
 import { json } from './http.ts'
 import { visitorKey } from './profiles.ts'
+import { compact } from './ranking.ts'
 import type { D1Database, Env } from './types.ts'
 
 export const GUEST_SEARCHES = 5
@@ -99,9 +100,17 @@ export async function giveBack(db: D1Database | undefined, access: Access): Prom
   return { ...access, guest: { ...access.guest, used: Math.max(0, access.guest.used - 1) } }
 }
 
-/** What a guest sees of an answer: each store's pick and first rows, and how many more an account would show. */
-export function forGuest<T extends { stores: { matches: unknown[] }[] }>(answer: T): T {
-  const stores = answer.stores.map((s) => (s.matches.length > GUEST_ROWS ? { ...s, matches: s.matches.slice(0, GUEST_ROWS), hiddenMatches: s.matches.length - GUEST_ROWS } : s))
+/**
+ * What a guest sees of an answer: each store's pick and first rows, and how
+ * many more an account would show. A row with exactly the name they searched
+ * for is never held back, wherever it ranks.
+ */
+export function forGuest<T extends { stores: { matches: { listing: { name: string } }[] }[] }>(answer: T, title: string): T {
+  const named = compact(title)
+  const stores = answer.stores.map((s) => {
+    const kept = s.matches.filter((m, i) => i < GUEST_ROWS || compact(m.listing.name) === named)
+    return kept.length < s.matches.length ? { ...s, matches: kept, hiddenMatches: s.matches.length - kept.length } : s
+  })
   return { ...answer, stores }
 }
 

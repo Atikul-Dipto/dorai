@@ -73,7 +73,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
         }).catch(() => {}),
       )
     }
-    return reply(request, access.guest ? forGuest(result) : result, results ? access : await giveBack(env.PP_DB, access))
+    return reply(request, access.guest ? forGuest(result, logged) : result, results ? access : await giveBack(env.PP_DB, access))
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     if (env.PP_DB) {

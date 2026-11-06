@@ -9,10 +9,14 @@
  *
  * GET is the extension's: it has no login, so it isn't counted, and it never sends a visitor.
  *
+ * A listing that's gone needn't be a dead end: from the site, its name (in the
+ * address) is searched for instead, and the answer says so in `fromLink`.
+ *
  * The comparison itself lives in worker/compare.ts.
  */
 
 import { admit, forGuest, giveBack, historyKey, NOT_COUNTED, reply, wall } from '../../../worker/access.ts'
+import { type Answer, run } from '../../../worker/agent.ts'
 import { compare, resolveShared } from '../../../worker/compare.ts'
 import { json, preflight } from '../../../worker/http.ts'
 import { onThisSite } from '../../../worker/parts.ts'
@@ -32,7 +36,12 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; n
   if (!ref) return json(request, { error: "That isn't a Daraz or Cartup product link." }, 400)
   const access = request.method === 'POST' ? await admit(request, env, new Date(askedAt)) : NOT_COUNTED
   if (!access.allowed) return wall(request, access)
-  const result = await compare(ref, onThisSite(env, request), { name })
+  const here = onThisSite(env, request)
+  const result = await compare(ref, here, { name })
+  const worthAsking = request.method === 'POST' && 'error' in result ? result.searchInstead : null
+  const instead: Answer | null = worthAsking ? await run({ name: worthAsking, details: '' }, here).catch(() => null) : null
+  const rows = (stores: Answer['stores']) => stores.reduce((n, s) => n + (s.recommended ? 1 : 0) + s.matches.length, 0)
+  const found = instead && rows(instead.stores) > 0 ? instead : null
   const visitor = await historyKey(env, access, raw.visitor)
   // A cached repeat still belongs in a shopper's history.
   if (env.PP_DB && (visitor || !('cached' in result && result.cached))) {
@@ -43,17 +52,20 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; n
         query: ref.url,
         mode: 'compare',
         intentSource: '',
-        results: 'error' in result ? 0 : result.stores.reduce((n, s) => n + (s.recommended ? 1 : 0) + s.matches.length, 0),
+        results: 'error' in result ? (found ? rows(found.stores) : 0) : rows(result.stores),
         bestPrice: 'error' in result ? null : result.source.listing.price,
         bestFinal: 'error' in result ? null : result.source.finalPrice,
         voucherApplied: false,
         totalMs: Date.now() - Date.parse(askedAt),
         timings: {},
-        error: 'error' in result ? result.error : null,
+        error: 'error' in result && !found ? result.error : null,
       }).catch(() => {}),
     )
   }
-  return 'error' in result ? reply(request, result, await giveBack(env.PP_DB, access), 502) : reply(request, access.guest ? forGuest(result) : result, access)
+  if (!('error' in result)) return reply(request, access.guest ? forGuest(result, result.source.listing.name) : result, access)
+  if (!found) return reply(request, { error: result.error }, await giveBack(env.PP_DB, access), 502)
+  const shown = { ...found, fromLink: { site: ref.site, label: result.label } }
+  return reply(request, access.guest ? forGuest(shown, worthAsking ?? '') : shown, access)
 }
 
 export const onRequestOptions = preflight

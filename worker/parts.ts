@@ -28,6 +28,7 @@ const PARTS = {
   darazSearch: (_env: Env, query: string, opts?: Parameters<typeof daraz.search>[1]) => daraz.search(query, opts),
   darazCategory: (_env: Env, url: string) => daraz.productCategory(url),
   darazTitle: (_env: Env, url: string) => daraz.productTitle(url),
+  darazProduct: (_env: Env, url: string, itemId: string) => daraz.fetchProduct(url, itemId),
   cartupLookup: (env: Env, title: string): Promise<cartup.CartupLookup> => cartup.lookup(env.PP_DB, title, (slug) => callPart(env, 'cartupProduct', slug)),
   cartupBrowse: (env: Env, kinds: string[]): Promise<cartup.Browsed> => cartup.browse(env.PP_DB, kinds, (category) => callPart(env, 'cartupCategory', category)),
   cartupCategory: (_env: Env, category: string) => cartup.fetchCategory(category),

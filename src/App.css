@@ -44,6 +44,9 @@
 .nav-watch:hover { border-color: var(--plum); color: var(--purple); }
 .nav-watch svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
 .nav-watch b { min-width: 20px; height: 20px; padding: 0 6px; color: #fff; background: var(--plum); border-radius: 999px; font-size: 11px; line-height: 20px; text-align: center; }
+.nav-account { height: 40px; min-width: 40px; padding: 0 14px; color: var(--purple); background: var(--gold); border: 0; border-radius: 999px; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.nav-account:hover { background: var(--peach); }
+.nav-account.signed-in { padding: 0; color: #fff; background: var(--plum); }
 .lang-switch { height: 40px; padding: 0 14px; color: #fff; background: var(--purple); border: 0; border-radius: 999px; font-size: 13.5px; font-weight: 700; cursor: pointer; }
 .lang-switch:hover { background: var(--plum); }
 
@@ -130,6 +133,23 @@
 /* Footer */
 .footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 24px 0 36px; color: var(--muted); border-top: 1px solid var(--line); font-size: 13px; }
 .footer a { color: var(--plum); font-weight: 600; }
+.guest-left { margin: 6px 0 0; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.account-backdrop { z-index: 60; align-items: center; justify-content: center; padding: 16px; }
+.account-panel { position: relative; width: min(420px, 100%); max-height: 100%; padding: 24px; overflow-y: auto; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); }
+.account-panel h2 { margin: 0 28px 6px 0; color: var(--purple); font-size: 20px; }
+.account-panel .btn { width: 100%; }
+.account-close { position: absolute; top: 18px; right: 18px; font-size: 15px; }
+.account-note { margin: 0 0 14px; color: var(--ink-2); font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.account-field { display: grid; gap: 4px; margin-bottom: 12px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.account-field input { height: 42px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; outline: none; font: inherit; font-size: 16px; font-weight: 400; }
+.account-field input:focus { border-color: var(--plum); box-shadow: var(--ring); }
+.account-field small { color: var(--muted); font-weight: 400; }
+.account-check { display: grid; grid-template-columns: 18px 1fr; gap: 8px; margin-bottom: 14px; color: var(--ink-2); font-size: 12.5px; line-height: 1.5; }
+.account-check input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--plum); }
+.account-error { margin: 0 0 12px; color: var(--hot-deep); font-size: 13px; font-weight: 600; }
+.account-links { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; margin-top: 14px; }
+.account-code { margin: 0 0 16px; padding: 14px; color: var(--purple); background: var(--tint); border-radius: 10px; font-family: var(--mono); font-size: 18px; font-weight: 500; text-align: center; overflow-wrap: anywhere; user-select: all; }
+.account-delete { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
 .history-bar { position: fixed; z-index: 30; right: 24px; bottom: 24px; width: min(440px, calc(100vw - 32px)); padding: 16px 18px; color: var(--ink-2); background: #fff; border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow); animation: fade-in .2s ease; }
 .history-bar h2 { margin: 0 0 4px; color: var(--purple); font-size: 16px; }
 .history-bar p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.55; }
@@ -147,7 +167,8 @@
   .topbar { height: 64px; margin: 0 -16px; padding: 0 16px; gap: 8px; }
   .brand img { height: 40px; }
   .hide-small { display: none; }
-  .nav-watch, .lang-switch { height: 36px; padding: 0 12px; font-size: 13px; }
+  .nav-watch, .lang-switch, .nav-account { height: 36px; padding: 0 12px; font-size: 13px; }
+  .nav-account.signed-in { min-width: 36px; padding: 0; }
   .hero { margin-top: 16px; padding: 32px 16px 28px; border-radius: 20px; }
   .hero-copy { font-size: 15px; }
   .search-row { grid-template-columns: 1fr; }

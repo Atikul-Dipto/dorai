@@ -4,15 +4,17 @@
  * installable web app (a product shared from the Daraz or Cartup app).
  *
  *   GET  ?link=<product URL, or the text an app shares>&name=<the page's product title>
- *   POST { "link": "...", "name": "...", "visitor"?: "..." }   visitor: from the site, for a shopper
- *        who said yes to search history (worker/profiles.ts); the extension never sends one
+ *   POST { "link": "...", "name": "...", "visitor"?: "..." }   from the site: counts as a search
+ *        for a guest (worker/access.ts); visitor is a guest who said yes to search history
+ *
+ * GET is the extension's: it has no login, so it isn't counted, and it never sends a visitor.
  *
  * The comparison itself lives in worker/compare.ts.
  */
 
+import { admit, forGuest, giveBack, historyKey, NOT_COUNTED, reply, wall } from '../../../worker/access.ts'
 import { compare, resolveShared } from '../../../worker/compare.ts'
 import { json, preflight } from '../../../worker/http.ts'
-import { visitorKey } from '../../../worker/profiles.ts'
 import { logAsk } from '../../../worker/store.ts'
 import type { Env } from '../../../worker/types.ts'
 
@@ -27,8 +29,10 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; n
   const askedAt = new Date().toISOString()
   const ref = await resolveShared(link)
   if (!ref) return json(request, { error: "That isn't a Daraz or Cartup product link." }, 400)
+  const access = request.method === 'POST' ? await admit(request, env, new Date(askedAt)) : NOT_COUNTED
+  if (!access.allowed) return wall(request, access)
   const result = await compare(ref, env, { name })
-  const visitor = await visitorKey(env, raw.visitor)
+  const visitor = await historyKey(env, access, raw.visitor)
   // A cached repeat still belongs in a shopper's history.
   if (env.PP_DB && (visitor || !('cached' in result && result.cached))) {
     waitUntil(
@@ -48,7 +52,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; n
       }).catch(() => {}),
     )
   }
-  return 'error' in result ? json(request, result, 502) : json(request, result)
+  return 'error' in result ? reply(request, result, await giveBack(env.PP_DB, access), 502) : reply(request, access.guest ? forGuest(result) : result, access)
 }
 
 export const onRequestOptions = preflight

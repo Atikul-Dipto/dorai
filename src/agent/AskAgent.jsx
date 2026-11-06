@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLang } from '../i18n.js'
+import { useAccount } from './account.js'
 import { askAgent, compareLink } from './api.js'
 import { track } from './events.js'
 import { money } from './format.js'
@@ -17,6 +18,8 @@ const EXAMPLES = [
   { name: 'monitor', details: '30k' },
 ]
 const RECENT_KEY = 'pricepulse:recent-asks-v2'
+const KEEP_ANSWER_MS = 15 * 60 * 1000 // as long as the server's own cache
+const askKey = (ask) => JSON.stringify([ask.name.trim(), ask.details.trim()])
 
 // The order the agent works in (worker/agent.ts). While waiting, the current
 // step is estimated from typical timings; once the answer lands, the real
@@ -377,6 +380,7 @@ function StorePick({ store, query, hot }) {
 /** One store's other matches, each matched to the product: its other sellers, other sizes, then close matches. */
 function StoreMatches({ store, named, query }) {
   const { t } = useLang()
+  const { openDialog } = useAccount()
   if (!store.matches.length) return null
   return (
     <div className="store-matches">
@@ -410,6 +414,11 @@ function StoreMatches({ store, named, query }) {
           </li>
         ))}
       </ul>
+      {store.hiddenMatches > 0 && (
+        <button type="button" className="more-locked" onClick={() => openDialog('login')}>
+          {t.moreLocked(store.hiddenMatches)}
+        </button>
+      )}
     </div>
   )
 }
@@ -417,7 +426,7 @@ function StoreMatches({ store, named, query }) {
 /** One store's whole answer. Each store gets one of these, side by side. */
 function StoreSection({ store, named, query, hot }) {
   const { t } = useLang()
-  const count = (store.recommended ? 1 : 0) + store.matches.length
+  const count = (store.recommended ? 1 : 0) + store.matches.length + (store.hiddenMatches ?? 0)
   return (
     <section className={`store-section ${store.site}${hot ? ' is-hot' : ''}`}>
       <header className="store-section-head">
@@ -566,6 +575,7 @@ function SearchIcon() {
  */
 export default function AskAgent({ stats, request }) {
   const { t, lang } = useLang()
+  const { user, guest, setGuest, openDialog } = useAccount()
   const [form, setForm] = useState(askFromUrl)
   const [showDetails, setShowDetails] = useState(() => Boolean(askFromUrl().details))
   const [state, setState] = useState({ status: 'idle', answer: null, error: null, asked: null })
@@ -574,6 +584,10 @@ export default function AskAgent({ stats, request }) {
   const controller = useRef(null)
   const nameRef = useRef(null)
   const resultsRef = useRef(null)
+  // What to run again after logging in: a search the guest limit stopped, or one with rows held back.
+  const afterLogin = useRef(null)
+  // Answers this page already has: going back to one shouldn't spend a guest's free search.
+  const seen = useRef(new Map())
 
   const run = useCallback((raw, { push = true, scroll = false } = {}) => {
     const ask = { name: tidy(raw.name), details: tidy(raw.details) }
@@ -593,6 +607,9 @@ export default function AskAgent({ stats, request }) {
     ;(link ? compareLink(ask.name, ctrl.signal) : askAgent(ask, ctrl.signal))
       .then((answer) => {
         setState({ status: 'done', answer, error: null, asked: ask })
+        seen.current.set(askKey(ask), { answer, at: Date.now() })
+        afterLogin.current = answer.stores?.some((s) => s.hiddenMatches) ? ask : null
+        if (answer.guest) setGuest(answer.guest)
         if (link) return // links are long, and already in the address bar to come back to
         setRecent((list) => {
           const next = [ask, ...list.filter((x) => !sameAsk(x, ask))].slice(0, 6)
@@ -602,10 +619,24 @@ export default function AskAgent({ stats, request }) {
       })
       .catch((error) => {
         if (error.name === 'AbortError') return
+        if (error.needLogin) {
+          if (error.guest) setGuest(error.guest)
+          afterLogin.current = ask
+          setState({ status: 'wall', answer: null, error: null, asked: ask })
+          openDialog('limit')
+          return
+        }
         setState({ status: 'error', answer: null, error: error.message || "Couldn't reach the agent.", asked: ask })
       })
       .finally(() => window.clearInterval(tick))
-  }, [])
+  }, [setGuest, openDialog])
+
+  useEffect(() => {
+    if (!user || !afterLogin.current) return
+    const ask = afterLogin.current
+    afterLogin.current = null
+    run(ask, { push: false })
+  }, [user, run])
 
   // A shared link opens straight onto its answer; back/forward replays them.
   useEffect(() => {
@@ -613,7 +644,12 @@ export default function AskAgent({ stats, request }) {
     if (initial.name || initial.details) run(initial, { push: false })
     const onPop = () => {
       const ask = askFromUrl()
-      if (ask.name || ask.details) run(ask, { push: false })
+      const kept = seen.current.get(askKey(ask))
+      if (kept && Date.now() - kept.at < KEEP_ANSWER_MS) {
+        controller.current?.abort()
+        setForm(ask)
+        setState({ status: 'done', answer: kept.answer, error: null, asked: ask })
+      } else if (ask.name || ask.details) run(ask, { push: false })
       else {
         controller.current?.abort()
         setForm({ name: '', details: '' })
@@ -712,6 +748,14 @@ export default function AskAgent({ stats, request }) {
             </button>
           )}
           <p className="search-hint">{t.searchHint}</p>
+          {!user && guest && (
+            <p className="guest-left">
+              {guest.used >= guest.limit ? t.guestNone : t.guestLeft(guest.limit - guest.used, guest.limit)}{' '}
+              <button type="button" className="btn-link" onClick={() => openDialog('login')}>
+                {t.logIn}
+              </button>
+            </p>
+          )}
         </form>
 
         <div className="chips">
@@ -734,6 +778,15 @@ export default function AskAgent({ stats, request }) {
 
       <div className="results" id="results" ref={resultsRef}>
         {asking && <Progress elapsed={elapsed} readsDetails={readsText(state.asked)} />}
+        {state.status === 'wall' && (
+          <div className="error-box" role="alert">
+            <strong>{t.limitTitle}</strong>
+            <p>{t.limitBody}</p>
+            <button type="button" className="btn btn-primary btn-small" onClick={() => openDialog('limit')}>
+              {t.logIn}
+            </button>
+          </div>
+        )}
         {state.status === 'error' && (
           <div className="error-box" role="alert">
             <strong>{t.errorTitle(label(state.asked))}</strong>

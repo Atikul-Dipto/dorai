@@ -42,8 +42,11 @@ pauses scheduled workflows in a repository with no commits for 60 days.
 - **robots.txt** is not followed for Othoba's search page (the owner's
   decision, 2026-11-03); every other line above still holds.
 - **Visitor data only by consent:** questions and learning events are logged
-  without who did them, unless the shopper says yes on the page. Then both
-  carry a salted hash of a random id kept in their browser, so `/profiles` can
-  read them together. No name, address or account. Turning it off deletes that
-  history, the link goes after a year, and the extension never sends an id.
-  Rate limits count salted hashes of addresses.
+  without who did them, unless the shopper says yes. Then both carry their
+  account, or for a guest a salted hash of a random id kept in their browser,
+  so `/profiles` can read them together. Turning it off deletes that history,
+  the link goes after a year, and the extension never sends an id. Having an
+  account isn't that yes: it's a separate choice.
+- **Accounts** hold an email and a protected password. A guest's trial is a
+  count per cookie, with nothing about what was searched. Rate limits count
+  salted hashes of addresses.

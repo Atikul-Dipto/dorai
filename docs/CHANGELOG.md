@@ -3,6 +3,19 @@
 What changed for shoppers and for the system, newest first. Commit history
 has the detail.
 
+## 2026-11-07
+
+- **Accounts and a guest trial.** Shoppers can create an account with an email
+  and password. A guest gets 5 searches, and each store shows its pick and 2
+  more rows; an account searches freely and sees every row. A search that fails
+  or finds nothing isn't counted, and going back to an answer on the page isn't
+  a new search. All of it is decided on the server. The extension is unchanged.
+- **Passwords** can be reset with a recovery code shown once at sign-up, because
+  DorAI can't send email yet. Addresses aren't verified, for the same reason.
+- **Search history** stays a separate yes. With an account it follows the
+  person across devices and shows by email at `/profiles`, and a guest's history
+  joins their account. Deleting an account deletes its history.
+
 ## 2026-11-06
 
 - **Visitor profiles.** A shopper can say yes to search history. Their searches,

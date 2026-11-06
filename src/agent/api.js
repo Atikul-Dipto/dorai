@@ -1,13 +1,13 @@
 // The shopping agent runs as a Cloudflare Pages Function on the same site
-// (functions/api/pp/, code in ../worker/). VITE_AGENT_API points development
-// at a preview deployment instead.
+// (functions/api/pp/, code in ../worker/), so calls carry the session cookie.
+// VITE_AGENT_API points development somewhere else.
 import { visitorId } from './visitor.js'
 
-export const AGENT_API = import.meta.env.VITE_AGENT_API ?? 'https://dorai-bd.pages.dev/api/pp'
+export const AGENT_API = import.meta.env.VITE_AGENT_API ?? '/api/pp'
 
 async function getJson(response) {
   const data = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(data?.error ?? `The agent answered ${response.status}.`)
+  if (!response.ok) throw Object.assign(new Error(data?.error ?? `The agent answered ${response.status}.`), { code: data?.code, needLogin: data?.needLogin, guest: data?.guest })
   return data
 }
 
@@ -32,7 +32,13 @@ export const compareLink = (link, signal) =>
 export const getVouchers = () => fetch(`${AGENT_API}/vouchers`).then(getJson)
 export const getStats = () => fetch(`${AGENT_API}/stats`).then(getJson)
 
-// A shopper turning search history off: everything kept under this id is deleted.
+export const getAuth = () => fetch(`${AGENT_API}/auth`).then(getJson)
+export const sendAuth = (action, fields) =>
+  fetch(`${AGENT_API}/auth`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action, ...fields }) }).then(getJson)
+export const deleteAccount = (password) =>
+  fetch(`${AGENT_API}/auth`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) }).then(getJson)
+
+// A guest turning search history off: everything kept under this id is deleted.
 export const forgetHistory = (visitor) =>
   fetch(`${AGENT_API}/profiles`, {
     method: 'DELETE',

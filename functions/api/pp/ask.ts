@@ -7,13 +7,16 @@
  *        Either may be empty, not both.
  *   GET  ?name=...&details=...    the same
  *   GET  ?q=... / POST { "query" } one-box form: the agent works out whether it's a name or a description
- *   POST may add "visitor": the id of a shopper who said yes to search history (worker/profiles.ts)
+ *   POST may add "visitor": the id of a guest who said yes to search history (worker/profiles.ts)
+ *
+ * An account searches freely; a guest has a few free searches, counted here on
+ * every route, then gets 401 { needLogin: true } (worker/access.ts).
  */
 
+import { admit, forGuest, giveBack, historyKey, reply, wall } from '../../../worker/access.ts'
 import { type Answer, type AskInput, run } from '../../../worker/agent.ts'
 import { readCache, searchKey, writeCache } from '../../../worker/cache.ts'
 import { json, preflight } from '../../../worker/http.ts'
-import { visitorKey } from '../../../worker/profiles.ts'
 import { logAsk } from '../../../worker/store.ts'
 import type { Env } from '../../../worker/types.ts'
 
@@ -37,7 +40,9 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
   if (typeof input === 'string') return json(request, { error: input }, 400)
   const logged = input.query ?? [input.name, input.details].filter(Boolean).join(' — ')
   const askedAt = new Date().toISOString()
-  const visitor = await visitorKey(env, raw.visitor)
+  const access = await admit(request, env, new Date(askedAt))
+  if (!access.allowed) return wall(request, access)
+  const visitor = await historyKey(env, access, raw.visitor)
   try {
     // The same search within 15 minutes is answered from the cache; an answer
     // where a store couldn't be reached isn't kept.
@@ -48,6 +53,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
     // The cheapest of the stores' recommended options, for the record of how answers went.
     const picks = result.stores.map((st) => st.recommended).filter((r) => r !== null)
     const cheapest = picks.sort((a, b) => a.finalPrice - b.finalPrice)[0] ?? null
+    const results = result.stores.reduce((n, st) => n + (st.recommended ? 1 : 0) + st.matches.length, 0)
     if (env.PP_DB) {
       waitUntil(
         logAsk(env.PP_DB, {
@@ -56,7 +62,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
           query: logged,
           mode: result.intent.mode,
           intentSource: result.intent.source,
-          results: result.stores.reduce((n, st) => n + (st.recommended ? 1 : 0) + st.matches.length, 0),
+          results,
           bestPrice: cheapest?.listing.price ?? null,
           bestFinal: cheapest?.finalPrice ?? null,
           voucherApplied: picks.some((r) => r.bestVoucher),
@@ -66,7 +72,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
         }).catch(() => {}),
       )
     }
-    return json(request, result)
+    return reply(request, access.guest ? forGuest(result) : result, results ? access : await giveBack(env.PP_DB, access))
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e)
     if (env.PP_DB) {
@@ -74,7 +80,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
         logAsk(env.PP_DB, { visitor, askedAt, query: logged, mode: '', intentSource: '', results: 0, bestPrice: null, bestFinal: null, voucherApplied: false, totalMs: Date.now() - Date.parse(askedAt), timings: {}, error: message.slice(0, 300) }).catch(() => {}),
       )
     }
-    return json(request, { error: `Couldn't reach Daraz just now (${message}). Try again in a moment.` }, 502)
+    return reply(request, { error: `Couldn't reach Daraz just now (${message}). Try again in a moment.` }, await giveBack(env.PP_DB, access), 502)
   }
 }
 

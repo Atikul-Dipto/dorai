@@ -7,7 +7,12 @@ import { readFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'node:test'
 
+import { onRequestDelete as authDelete, onRequestGet as authGet, onRequestPost as authPost } from '../functions/api/pp/auth.ts'
+import { onRequestGet as askGet, onRequestPost as askPost } from '../functions/api/pp/ask.ts'
+import { onRequestGet as compareGet, onRequestPost as comparePost } from '../functions/api/pp/compare.ts'
 import { runJobs } from '../jobs/index.ts'
+import { admit, forGuest, GUEST_ROWS, GUEST_SEARCHES, giveBack, guestCount, historyKey } from './access.ts'
+import { deleteAccount, logIn, profileKey, sessionUser, setHistory } from './accounts.ts'
 import { run } from './agent.ts'
 import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
@@ -19,7 +24,7 @@ import { dropWorthTelling, putWatches, readWatch } from './watchlist.ts'
 
 function freshDb(): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(':memory:')
-  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql', '0005_visitor_profiles.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
+  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql', '0005_visitor_profiles.sql', '0006_accounts.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
   // Plain objects, as D1 returns (node:sqlite's rows have no prototype).
   const plain = (row: unknown) => (row ? { ...(row as object) } : null)
   const statement = (sql: string, params: unknown[] = []): D1Statement => ({
@@ -121,6 +126,257 @@ test('visitor profiles: after a year the rows stay and the link goes, in the dai
   assert.equal(linked(), 1)
   assert.deepEqual({ ...(raw.prepare('SELECT COUNT(*) AS n FROM asks').get() as object) }, { n: 2 })
   assert.equal((await readProfile(db, 'me'))?.pattern.searches, 1)
+})
+
+// The API as a browser uses it: a cookie jar, one address.
+function browser(env: { PP_DB: D1Database }, address = '203.0.113.1') {
+  const jar = new Map<string, string>()
+  const keep = (response: Response) => {
+    for (const line of response.headers.getSetCookie()) {
+      const [name, value] = line.split(';')[0].split('=')
+      if (value) jar.set(name, value)
+      else jar.delete(name)
+    }
+    return response
+  }
+  const request = (url: string, method: string, body?: unknown) =>
+    new Request(`https://dorai.test/api/pp/${url}`, {
+      method,
+      headers: { 'cf-connecting-ip': address, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '), 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  const auth = async (body: unknown) => {
+    const response = keep(await authPost({ request: request('auth', 'POST', body), env }))
+    return { status: response.status, body: (await response.json()) as Record<string, any>, response }
+  }
+  return { jar, keep, request, auth, ctx: (url: string, method: string, body?: unknown) => ({ request: request(url, method, body), env, waitUntil: () => {} }) }
+}
+const SIGNUP = { action: 'signup', email: 'Rahim@Example.com ', password: 'correct horse' }
+
+test('accounts: sign up, log in, log out; the password is never stored, and the cookie is out of scripts\' reach', async () => {
+  const { db, raw } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const made = await page.auth(SIGNUP)
+  assert.equal(made.status, 201)
+  assert.equal(made.body.user.email, 'rahim@example.com')
+  assert.match(made.body.recoveryCode, /^[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/)
+  const cookie = made.response.headers.getSetCookie()[0]
+  for (const part of ['HttpOnly', 'Secure', 'SameSite=Lax']) assert.ok(cookie.includes(part))
+
+  const row = raw.prepare('SELECT * FROM users').get() as Record<string, unknown>
+  assert.ok(!JSON.stringify(row).includes('correct horse'))
+  assert.ok(!JSON.stringify(row).includes(made.body.recoveryCode))
+  assert.equal(row.rounds, 100000)
+  const session = raw.prepare('SELECT token_hash FROM sessions').get() as { token_hash: string }
+  assert.notEqual(session.token_hash, page.jar.get('dorai_session'))
+
+  const who = async () => (await (await authGet({ request: page.request('auth', 'GET'), env })).json()) as Record<string, any>
+  assert.equal((await who()).user.email, 'rahim@example.com')
+  await page.auth({ action: 'logout' })
+  assert.equal((await who()).user, null)
+  assert.equal((raw.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }).n, 0)
+
+  assert.equal((await page.auth({ action: 'login', email: 'rahim@example.com', password: 'wrong password' })).status, 401)
+  assert.equal((await page.auth({ action: 'login', email: 'nobody@example.com', password: 'correct horse' })).body.code, 'wrong')
+  assert.equal((await page.auth({ action: 'login', email: 'RAHIM@example.com', password: 'correct horse' })).status, 200)
+  assert.equal((await who()).user.email, 'rahim@example.com')
+})
+
+test('accounts: bad details are refused, and an address has one account', async () => {
+  const { db } = freshDb()
+  const page = browser({ PP_DB: db })
+  assert.equal((await page.auth({ ...SIGNUP, email: 'not an email' })).body.code, 'badEmail')
+  assert.equal((await page.auth({ ...SIGNUP, password: 'short' })).body.code, 'shortPassword')
+  assert.equal((await page.auth({ action: 'nonsense' })).body.code, 'badAction')
+  assert.equal((await page.auth(SIGNUP)).status, 201)
+  assert.equal((await page.auth(SIGNUP)).body.code, 'taken')
+})
+
+test('accounts: a recovery code resets the password once, and ends every old session', async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const { body } = await page.auth(SIGNUP)
+  const elsewhere = new Map(page.jar)
+  const reset = (code: string, password = 'a new password') => page.auth({ action: 'reset', email: SIGNUP.email, code, password })
+  assert.equal((await reset('AAAA-BBBB-CCCC-DDDD')).body.code, 'badCode')
+  assert.equal((await reset(body.recoveryCode, 'short')).body.code, 'shortPassword')
+  const done = await reset(body.recoveryCode.toLowerCase().replaceAll('-', ' '))
+  assert.equal(done.status, 200)
+  assert.notEqual(done.body.recoveryCode, body.recoveryCode)
+  assert.equal((await reset(body.recoveryCode, 'another password')).body.code, 'badCode')
+  assert.equal(await logIn(db, 'rahim@example.com', SIGNUP.password), null)
+  assert.ok(await logIn(db, 'rahim@example.com', 'a new password'))
+  const old = new Request('https://dorai.test/', { headers: { cookie: `dorai_session=${elsewhere.get('dorai_session')}` } })
+  assert.equal(await sessionUser(db, old, new Date()), null)
+})
+
+test('accounts: too many wrong passwords on one account are stopped, from any address', async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db }
+  await browser(env).auth(SIGNUP)
+  const statuses: number[] = []
+  for (let i = 0; i < 12; i++) statuses.push((await browser(env, `203.0.113.${i + 10}`).auth({ action: 'login', email: SIGNUP.email, password: 'guessing wrong' })).status)
+  assert.deepEqual(statuses, [...Array(10).fill(401), 429, 429])
+})
+
+test('accounts: a session ends when it expires', async () => {
+  const { db } = freshDb()
+  const page = browser({ PP_DB: db })
+  await page.auth(SIGNUP)
+  const request = page.request('auth', 'GET')
+  assert.ok(await sessionUser(db, request, new Date()))
+  assert.equal(await sessionUser(db, request, new Date(Date.now() + 91 * 86_400_000)), null)
+})
+
+test('guests: five searches, counted on the server, then a wall; an account passes uncounted', async () => {
+  const { db, raw } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const now = new Date('2026-11-07T10:00:00Z')
+  const used: (number | undefined)[] = []
+  for (let i = 0; i < GUEST_SEARCHES; i++) {
+    const access = await admit(page.request('ask', 'POST', {}), env, now)
+    assert.equal(access.allowed, true)
+    used.push(access.guest?.used)
+    if (access.cookie) page.jar.set('dorai_guest', access.cookie.split(';')[0].split('=')[1])
+  }
+  assert.deepEqual(used, [1, 2, 3, 4, 5])
+  assert.equal((await guestCount(page.request('auth', 'GET'), env)).used, 5)
+  const over = await admit(page.request('ask', 'POST', {}), env, now)
+  assert.equal(over.allowed, false)
+  assert.deepEqual(over.guest, { used: 5, limit: 5 })
+
+  // The guest row is a count: no search, no address.
+  assert.deepEqual(Object.keys(raw.prepare('SELECT * FROM guests').get() as object).sort(), ['first_at', 'key', 'last_at', 'used'])
+
+  await page.auth(SIGNUP)
+  for (let i = 0; i < 8; i++) {
+    const access = await admit(page.request('ask', 'POST', {}), env, now)
+    assert.equal(access.allowed, true)
+    assert.equal(access.guest, null)
+    assert.equal(access.user?.email, 'rahim@example.com')
+  }
+})
+
+test('guests: a failed search gives its free one back', async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const first = await admit(page.request('ask', 'POST', {}), env, new Date())
+  page.jar.set('dorai_guest', first.cookie!.split(';')[0].split('=')[1])
+  assert.equal((await giveBack(db, first)).guest?.used, 0)
+  assert.equal((await guestCount(page.request('auth', 'GET'), env)).used, 0)
+})
+
+test('guests: clearing cookies starts a new trial, but one address is capped for the day', async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db }
+  const now = new Date('2026-11-07T10:00:00Z')
+  let allowed = 0
+  for (let i = 0; i < 70; i++) if ((await admit(browser(env).request('ask', 'POST', {}), env, now)).allowed) allowed++
+  assert.equal(allowed, 60)
+  assert.equal((await admit(browser(env, '203.0.113.99').request('ask', 'POST', {}), env, now)).allowed, true)
+  assert.equal((await admit(browser(env).request('ask', 'POST', {}), env, new Date('2026-11-08T10:00:00Z'))).allowed, true)
+})
+
+test('the ask endpoint walls off a guest on every route, before any store is called', async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const real = globalThis.fetch
+  globalThis.fetch = (async () => {
+    throw new Error('no store may be called')
+  }) as typeof fetch
+  try {
+    const first = await admit(page.request('ask', 'POST', {}), env, new Date())
+    page.jar.set('dorai_guest', first.cookie!.split(';')[0].split('=')[1])
+    for (let i = 1; i < GUEST_SEARCHES; i++) await admit(page.request('ask', 'POST', {}), env, new Date())
+    const post = await askPost(page.ctx('ask', 'POST', { name: 'Awei T50' }))
+    assert.equal(post.status, 401)
+    assert.deepEqual(await post.json(), { error: 'Log in to keep searching.', needLogin: true, guest: { used: 5, limit: 5 } })
+    assert.equal((await askGet(page.ctx('ask?q=Awei%20T50', 'GET'))).status, 401)
+  } finally {
+    globalThis.fetch = real
+  }
+})
+
+test("compare: the site's links count for a guest; the extension's GET stays open", async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  const link = 'https://www.daraz.com.bd/products/awei-t50-i562252743.html'
+  const first = await admit(page.request('ask', 'POST', {}), env, new Date())
+  page.jar.set('dorai_guest', first.cookie!.split(';')[0].split('=')[1])
+  for (let i = 1; i < GUEST_SEARCHES; i++) await admit(page.request('ask', 'POST', {}), env, new Date())
+  const real = globalThis.fetch
+  globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch
+  try {
+    assert.equal((await comparePost(page.ctx('compare', 'POST', { link }))).status, 401)
+    assert.notEqual((await compareGet(page.ctx(`compare?link=${encodeURIComponent(link)}`, 'GET'))).status, 401)
+  } finally {
+    globalThis.fetch = real
+  }
+})
+
+test('a guest sees each store\'s pick and first rows; the answer says how many more an account shows', () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ i }))
+  const answer = { hotDeal: 'kept', stores: [{ site: 'daraz', recommended: 'pick', matches: rows(GUEST_ROWS + 5) }, { site: 'othoba', recommended: 'pick', matches: rows(GUEST_ROWS) }] }
+  const seen = forGuest(answer) as unknown as { hotDeal: string; stores: { recommended: string; matches: unknown[]; hiddenMatches?: number }[] }
+  assert.equal(seen.hotDeal, 'kept')
+  assert.equal(seen.stores[0].recommended, 'pick')
+  assert.equal(seen.stores[0].matches.length, GUEST_ROWS)
+  assert.equal(seen.stores[0].hiddenMatches, 5)
+  assert.equal(seen.stores[1].hiddenMatches, undefined)
+  assert.equal(answer.stores[0].matches.length, GUEST_ROWS + 5) // what's cached stays whole
+})
+
+test("accounts: search history needs a yes, follows the account, and a guest's joins it", async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db, RATE_SALT: 'salt' }
+  const at = '2026-11-07T10:00:00Z'
+  const page = browser(env)
+  const id = 'c'.repeat(32)
+  const guestKey = (await historyKey(env, { user: null }, id))!
+  await askedBy(db, guestKey, at, 'as a guest')
+
+  const said = await page.auth({ ...SIGNUP, history: false, visitor: id })
+  const user = { id: 1, email: said.body.user.email, history: false }
+  assert.equal(await historyKey(env, { user }, id), null) // no: nothing links, and the guest's rows stay where they are
+  assert.equal((await readProfile(db, profileKey(user))), null)
+
+  await page.auth({ action: 'history', on: true })
+  await page.auth({ action: 'login', email: SIGNUP.email, password: SIGNUP.password, visitor: id })
+  assert.equal(await historyKey(env, { user: { ...user, history: true } }, id), 'u1')
+  assert.equal((await readProfile(db, 'u1'))?.pattern.searches, 1)
+  assert.equal(await readProfile(db, guestKey), null)
+
+  await recordInteractions(db, [act('open')], at, 'u1')
+  const list = (await listProfiles(db)) as { key: string; email: string | null }[]
+  assert.deepEqual(list.map((v) => [v.key, v.email]), [['u1', 'rahim@example.com']])
+  assert.equal((await readProfile(db, 'u1'))?.email, 'rahim@example.com')
+
+  await setHistory(db, { ...user, history: true }, false)
+  assert.equal(await readProfile(db, 'u1'), null)
+})
+
+test('accounts: deleting one takes its sessions and history, and needs the password', async () => {
+  const { db, raw } = freshDb()
+  const env = { PP_DB: db }
+  const page = browser(env)
+  await page.auth({ ...SIGNUP, history: true })
+  await askedBy(db, 'u1', '2026-11-07T10:00:00Z')
+  await askedBy(db, null, '2026-11-07T10:00:00Z')
+  const remove = async (password: string) => page.keep(await authDelete({ request: page.request('auth', 'DELETE', { password }), env }))
+  assert.equal((await remove('not the password')).status, 401)
+  assert.ok(await readProfile(db, 'u1'))
+  assert.equal((await remove(SIGNUP.password)).status, 200)
+  for (const table of ['users', 'sessions']) assert.equal((raw.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, 0)
+  assert.equal((raw.prepare('SELECT COUNT(*) AS n FROM asks').get() as { n: number }).n, 1)
+  assert.equal(page.jar.has('dorai_session'), false)
+  assert.equal(await logIn(db, 'rahim@example.com', SIGNUP.password), null)
+  await deleteAccount(db, { id: 99, email: 'gone@example.com', history: false }) // nothing there: no error
 })
 
 test('a device proves itself with its token; only its hash is stored', async () => {

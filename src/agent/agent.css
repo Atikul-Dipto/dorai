@@ -98,6 +98,8 @@
 .hot-deal-buy { display: grid; justify-items: end; gap: 6px; }
 .hot-deal-buy strong { color: var(--hot-deep); font-size: 26px; line-height: 1; }
 .hot-deal-buy small { color: var(--muted); }
+.more-locked { display: block; width: 100%; margin-top: 8px; padding: 9px 12px; color: var(--plum); background: var(--tint); border: 1px dashed var(--line-strong); border-radius: 10px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.more-locked:hover { color: var(--purple); border-color: var(--plum); }
 .btn-hot { color: #fff; background: var(--hot-deep); white-space: nowrap; }
 .btn-hot:hover { background: var(--hot); }
 .store-section.is-hot { border-color: var(--hot); border-top-color: var(--hot); animation: hot-glow 1.8s ease-in-out infinite; }

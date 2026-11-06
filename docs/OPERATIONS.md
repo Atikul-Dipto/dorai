@@ -25,7 +25,7 @@ Local copies live in `.dev.vars` (gitignored). Set a secret with
 | `ADMIN_TOKEN` | site | Unlocks the recent-questions list in `/api/pp/stats`. |
 | `VAPID_PUBLIC_KEY` | site + jobs, as a plain setting in each `wrangler.toml` | Push key, public half. |
 | `VAPID_PRIVATE_JWK` | site + jobs, secret | Push key, private half (JWK). Changing the key pair turns every device's notifications off until it re-subscribes. |
-| `RATE_SALT` | site, secret | Salt for the hashed caller keys the rate limits count and for visitor keys. Changing it splits every visitor's history in two, and their "delete" no longer reaches the old half. |
+| `RATE_SALT` | site, secret | Salt for the hashed caller keys the rate limits count and for visitor keys. Changing it splits every guest's history in two, and their "delete" no longer reaches the old half; it also gives every guest a new trial. |
 | `TELEGRAM_BOT_TOKEN` | site + jobs, secret | From BotFather. Telegram stays off until set. |
 | `TELEGRAM_BOT_NAME` | site, plain setting in `wrangler.toml` | The bot's username, without @. |
 | `TELEGRAM_WEBHOOK_SECRET` | site, secret | Any random string; Telegram sends it back on every webhook call. |
@@ -43,6 +43,9 @@ Local copies live in `.dev.vars` (gitignored). Set a secret with
 3. In the watchlist, "Connect Telegram" now appears.
 
 ## Reviewing product matches
+
+Search history is read at https://dorai-bd.pages.dev/profiles with the same
+token: accounts by email, guests by a short id.
 
 Open https://dorai-bd.pages.dev/review and enter the `ADMIN_TOKEN` (in
 `.dev.vars`; kept in that browser only). Each card is a listing the

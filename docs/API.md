@@ -11,6 +11,7 @@ Three kinds of access:
 |---|---|
 | Public | Nothing to send. |
 | Device | `Authorization: Bearer <token>` from `POST /device` (an anonymous device; only a hash of the secret is stored). |
+| Account | The HttpOnly session cookie from `POST /auth`. |
 | Owner | `Authorization: Bearer <ADMIN_TOKEN>` (a Pages secret; the local copy is in `.dev.vars`). |
 
 ## Search and compare
@@ -76,13 +77,42 @@ Up to 10 per call. Answer: `{ recorded }`.
 The readout: counts per kind, opens by slot and relation, most opened
 offers, and the picks most often called not what was wanted.
 
+## Accounts and the guest trial
+
+An account searches freely and sees every row of an answer. A guest has 5
+searches (`worker/access.ts`), counted by an HttpOnly cookie, with a limit of 60
+guest searches a day per address. A search that fails or finds nothing isn't
+counted.
+
+- `/ask` (either method) and `POST /compare` count a guest's search. Their
+  answers then carry `guest: { used, limit }`, and each store shows 2 rows
+  beyond its pick, with `hiddenMatches` saying how many more an account sees.
+- Past the limit they answer `401 { error, needLogin: true, guest }`.
+- `GET /compare` is the extension's and isn't counted: it has no login.
+
+| Endpoint | Access | What |
+|---|---|---|
+| `GET /auth` | public | `{ user, guest }`: who this is, and a guest's count. |
+| `POST /auth { action: "signup", email, password, history?, visitor? }` | public, 10 an hour per caller | A new account, signed in, with `recoveryCode`, shown only here. |
+| `POST /auth { action: "login", email, password, visitor? }` | public, 30 an hour per caller, 10 per account | Signs in. |
+| `POST /auth { action: "logout" }` | session | Ends this session. |
+| `POST /auth { action: "reset", email, code, password }` | public, 10 an hour per caller and per account | A new password with the recovery code; it returns a new code, and every old session ends. |
+| `POST /auth { action: "history", on }` | session | Search history on, or off and deleted. |
+| `DELETE /auth { password }` | session | Deletes the account, its sessions and its history. |
+
+Refusals are `{ error, code }`, with `code` one of `badEmail`, `shortPassword`,
+`taken`, `wrong`, `badCode`, `tooMany`, `notSignedIn`. `visitor` on signup and
+login brings a guest's search history into the account, when the account has
+history on.
+
 ## Visitor profiles
 
 What one shopper searches and looks up (`worker/profiles.ts`; the page is
-`/profiles`), only for those who said yes on the site. `POST /ask`,
-`POST /compare` and `POST /events` then send `visitor`, the 32-character hex id
-in that browser; the database keeps a salted hash of it. Anything else in
-`visitor` is ignored, and the row is logged with no visitor.
+`/profiles`), only for those who said yes on the site. With an account, it's
+that account on any device. A guest's `POST /ask`, `POST /compare` and
+`POST /events` send `visitor`, the 32-character hex id in that browser; the
+database keeps a salted hash of it. Anything else in `visitor` is ignored, and
+the row is logged with no visitor.
 
 | Endpoint | Access | What |
 |---|---|---|

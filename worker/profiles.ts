@@ -3,10 +3,11 @@
  * page (/profiles). Only for a shopper who said yes on the site; nobody else's
  * rows are linked to anything, and the extension never sends an id.
  *
- * The browser keeps a random id and the database a salted hash of it, so
- * nothing in the database can be used to act as that visitor. No name, address
- * or account. A shopper can delete theirs at any time, and the link is dropped
- * after a year.
+ * With an account, a profile is that account (key "u<id>", worker/accounts.ts),
+ * across devices. A guest's is one browser: it keeps a random id and the
+ * database a salted hash of it, so nothing in the database can be used to act
+ * as that visitor. A shopper can delete theirs at any time, and the link is
+ * dropped after a year.
  */
 
 import { sha256 } from './devices.ts'
@@ -95,11 +96,12 @@ export function patternOf(asks: AskRow[], events: EventRow[]) {
 export async function listProfiles(db: D1Database) {
   const { results } = await db
     .prepare(
-      `SELECT visitor AS key, MIN(at) AS firstSeen, MAX(at) AS lastSeen, SUM(kind = 'search') AS searches,
+      `SELECT visitor AS key, u.email, MIN(at) AS firstSeen, MAX(at) AS lastSeen, SUM(kind = 'search') AS searches,
               SUM(kind = 'open') AS opens, SUM(kind = 'save') AS saves, SUM(kind = 'not_this') AS notWanted
          FROM (SELECT visitor, asked_at AS at, 'search' AS kind FROM asks WHERE visitor IS NOT NULL
                UNION ALL
                SELECT visitor, at, kind FROM interactions WHERE visitor IS NOT NULL)
+         LEFT JOIN users u ON visitor = 'u' || u.id
         GROUP BY visitor ORDER BY lastSeen DESC LIMIT ?`,
     )
     .bind(VISITORS)
@@ -109,7 +111,7 @@ export async function listProfiles(db: D1Database) {
 
 /** One visitor's pattern and latest acts, or null when there's no such history. */
 export async function readProfile(db: D1Database, key: string) {
-  const [asks, events] = await Promise.all([
+  const [asks, events, account] = await Promise.all([
     db.prepare(`SELECT asked_at AS at, query, mode, results FROM asks WHERE visitor = ? ORDER BY asked_at DESC LIMIT ?`).bind(key, ROWS).all<AskRow>(),
     db
       .prepare(
@@ -119,6 +121,7 @@ export async function readProfile(db: D1Database, key: string) {
       )
       .bind(key, ROWS)
       .all<EventRow>(),
+    db.prepare(`SELECT email FROM users WHERE 'u' || id = ?`).bind(key).first<{ email: string }>(),
   ])
   if (!asks.results.length && !events.results.length) return null
   const seen = [...asks.results, ...events.results].map((r) => r.at).sort()
@@ -128,12 +131,17 @@ export async function readProfile(db: D1Database, key: string) {
   ]
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, TIMELINE)
-  return { key, firstSeen: seen[0], lastSeen: seen[seen.length - 1], pattern: patternOf(asks.results, events.results), timeline }
+  return { key, email: account?.email ?? null, firstSeen: seen[0], lastSeen: seen[seen.length - 1], pattern: patternOf(asks.results, events.results), timeline }
 }
 
 /** A shopper turning it off: their history goes, not just the link to it. */
 export async function forgetProfile(db: D1Database, key: string): Promise<void> {
   await db.batch([db.prepare(`DELETE FROM asks WHERE visitor = ?`).bind(key), db.prepare(`DELETE FROM interactions WHERE visitor = ?`).bind(key)])
+}
+
+/** One history joining another: a guest's browser becoming an account. */
+export async function mergeProfile(db: D1Database, from: string, to: string): Promise<void> {
+  await db.batch([db.prepare(`UPDATE asks SET visitor = ? WHERE visitor = ?`).bind(to, from), db.prepare(`UPDATE interactions SET visitor = ? WHERE visitor = ?`).bind(to, from)])
 }
 
 /** Past a year, rows stay in the anonymous log with the link to the visitor gone. */

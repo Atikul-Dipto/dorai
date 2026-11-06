@@ -13,13 +13,15 @@
  *   5. runs the product matching engine (worker/catalog.ts) over a batch of
  *      listings not matched to a canonical product yet;
  *   6. once a day, drops the link to a visitor from rows over a year old
- *      (worker/profiles.ts).
+ *      (worker/profiles.ts), and clears spent sessions and long-gone guests.
  *
  * A few checks per run on purpose: Daraz bot-checks bursts from Cloudflare,
  * and the free plan's CPU budget per run is small. 3 per 10 minutes is up to
  * ~430 checks a day, enough for ~100 watched products every 6 hours.
  */
 
+import { tidyGuests } from '../worker/access.ts'
+import { tidySessions } from '../worker/accounts.ts'
 import { matchNewListings } from '../worker/catalog.ts'
 import { notify } from '../worker/notify.ts'
 import { expireProfiles } from '../worker/profiles.ts'
@@ -101,7 +103,7 @@ export async function runJobs(env: Env, now = new Date()): Promise<{ checked: nu
     // tried again next run
   }
   // The first run after midnight UTC.
-  if (now.getUTCHours() === 0 && now.getUTCMinutes() < 10) await expireProfiles(db, now).catch(() => {})
+  if (now.getUTCHours() === 0 && now.getUTCMinutes() < 10) await Promise.all([expireProfiles(db, now), tidySessions(db, now), tidyGuests(db, now)]).catch(() => {})
   return done
 }
 

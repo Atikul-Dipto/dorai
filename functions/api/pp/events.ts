@@ -1,17 +1,18 @@
 /**
  * /api/pp/events — learning events: what shoppers do with an answer
  * (worker/interactions.ts). Sent by the page as a beacon. Linked to a visitor
- * only when the shopper said yes to search history (worker/profiles.ts).
+ * or an account only when the shopper said yes to search history (worker/profiles.ts).
  *
  *   POST { events: [{ kind, query, itemId, site, slot, relation?, position?, price? }], visitor? }   up to 10
  *        kind: open | save | unsave | not_this; slot: pick | match
  *   GET  ?days=7   the owner's readout ("Authorization: Bearer <ADMIN_TOKEN>")
  */
 
+import { historyKey } from '../../../worker/access.ts'
+import { sessionUser } from '../../../worker/accounts.ts'
 import { allow, callerKey } from '../../../worker/devices.ts'
 import { json, preflight } from '../../../worker/http.ts'
 import { MAX_EVENTS, readInteraction, recordInteractions, summarizeInteractions } from '../../../worker/interactions.ts'
-import { visitorKey } from '../../../worker/profiles.ts'
 import type { Env } from '../../../worker/types.ts'
 
 type Ctx = { request: Request; env: Env & { ADMIN_TOKEN?: string } }
@@ -28,7 +29,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
   if (!events.length) return json(request, { error: 'Send { events: [{ kind, query, itemId, site, slot }] }.' }, 400)
   const now = new Date()
   if (!(await allow(db, await callerKey(request, env, 'events'), EVENTS_PER_HOUR, 3600, now))) return json(request, { error: 'Too many events. Try again later.' }, 429)
-  await recordInteractions(db, events, now.toISOString(), await visitorKey(env, body?.visitor))
+  await recordInteractions(db, events, now.toISOString(), await historyKey(env, { user: await sessionUser(db, request, now) }, body?.visitor))
   return json(request, { recorded: events.length })
 }
 

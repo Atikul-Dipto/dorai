@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import './agent/agent.css'
+import AccountDialog from './agent/AccountDialog.jsx'
 import AskAgent from './agent/AskAgent.jsx'
 import GetDorAI from './agent/GetDorAI.jsx'
 import SearchHistory from './agent/SearchHistory.jsx'
 import VoucherBoard from './agent/VoucherBoard.jsx'
 import Watchlist from './agent/Watchlist.jsx'
+import { AccountContext, useAccountState } from './agent/account.js'
 import { getStats, getVouchers } from './agent/api.js'
 import { useWatchlistState, WatchlistContext } from './agent/watchlist.js'
 import { LangContext, loadLang, POPULAR, saveLang, STRINGS } from './i18n.js'
@@ -34,6 +36,7 @@ export default function App() {
   const [watchOpen, setWatchOpen] = useState(false)
   const [request, setRequest] = useState(null)
   const watchlist = useWatchlistState()
+  const account = useAccountState()
   const t = STRINGS[lang]
   const langValue = useMemo(() => ({ lang, t }), [lang, t])
 
@@ -57,6 +60,7 @@ export default function App() {
 
   return (
     <LangContext.Provider value={langValue}>
+      <AccountContext.Provider value={account}>
       <WatchlistContext.Provider value={watchlist}>
         <div className="page">
           <header className="topbar">
@@ -67,13 +71,23 @@ export default function App() {
               <a href="#how" className="hide-small">
                 {t.navHow}
               </a>
-              <button type="button" className="nav-watch" onClick={() => setWatchOpen(true)}>
+              <button type="button" className="nav-watch" aria-label={t.navWatchlist} onClick={() => setWatchOpen(true)}>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4.5L5 21V4a1 1 0 0 1 1-1z" />
                 </svg>
-                {t.navWatchlist}
+                <span className="hide-small">{t.navWatchlist}</span>
                 {watchlist.items.length > 0 && <b>{watchlist.items.length}</b>}
               </button>
+              {account.ready && (
+                <button
+                  type="button"
+                  className={`nav-account${account.user ? ' signed-in' : ''}`}
+                  aria-label={account.user ? t.accountTitle : undefined}
+                  onClick={() => account.openDialog(account.user ? 'account' : 'login')}
+                >
+                  {account.user ? account.user.email[0].toUpperCase() : t.logIn}
+                </button>
+              )}
               <button type="button" className="lang-switch" onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')} lang={lang === 'bn' ? 'en' : 'bn'}>
                 {t.switchTo}
               </button>
@@ -137,7 +151,9 @@ export default function App() {
         </div>
 
         <Watchlist open={watchOpen} onClose={closeWatch} onCompare={(url) => search({ name: url, details: '' })} />
+        <AccountDialog />
       </WatchlistContext.Provider>
+      </AccountContext.Provider>
     </LangContext.Provider>
   )
 }

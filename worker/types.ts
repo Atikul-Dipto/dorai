@@ -87,6 +87,8 @@ export interface Env {
   TELEGRAM_WEBHOOK_SECRET?: string
   // Salt for the hashed caller keys the rate limits count by.
   RATE_SALT?: string
+  // This site's own address: with it, store reads run as their own requests (parts.ts).
+  SELF?: string
 }
 
 // Minimal D1 surface used here (Cloudflare's types aren't installed in this repo).

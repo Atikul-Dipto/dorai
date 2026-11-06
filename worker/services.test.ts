@@ -10,6 +10,7 @@ import { test } from 'node:test'
 import { onRequestDelete as authDelete, onRequestGet as authGet, onRequestPost as authPost } from '../functions/api/pp/auth.ts'
 import { onRequestGet as askGet, onRequestPost as askPost } from '../functions/api/pp/ask.ts'
 import { onRequestGet as compareGet, onRequestPost as comparePost } from '../functions/api/pp/compare.ts'
+import { onRequestPost as partPost } from '../functions/api/pp/part.ts'
 import { runJobs } from '../jobs/index.ts'
 import { admit, forGuest, GUEST_ROWS, GUEST_SEARCHES, giveBack, guestCount, historyKey } from './access.ts'
 import { deleteAccount, logIn, profileKey, sessionUser, setHistory } from './accounts.ts'
@@ -18,6 +19,7 @@ import { confidence, decideReview, findProducts, levelOf, matchListing, matchNew
 import { allow, authDevice, registerDevice } from './devices.ts'
 import { readInteraction, recordInteractions, summarizeInteractions } from './interactions.ts'
 import { forgetProfile, listProfiles, patternOf, readProfile, visitorKey } from './profiles.ts'
+import { callPart, onThisSite, partKey } from './parts.ts'
 import { logAsk, recordListings } from './store.ts'
 import type { D1Database, D1Statement, Listing } from './types.ts'
 import { dropWorthTelling, putWatches, readWatch } from './watchlist.ts'
@@ -377,6 +379,61 @@ test('accounts: deleting one takes its sessions and history, and needs the passw
   assert.equal(page.jar.has('dorai_session'), false)
   assert.equal(await logIn(db, 'rahim@example.com', SIGNUP.password), null)
   await deleteAccount(db, { id: 99, email: 'gone@example.com', history: false }) // nothing there: no error
+})
+
+test('store reads run as requests of their own, for this site only', async () => {
+  const env = { RATE_SALT: 'salt' }
+  const seen: string[] = []
+  const real = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    seen.push(url)
+    if (url.includes('/api/pp/part')) return partPost({ request: new Request(url, init), env })
+    return new Response(JSON.stringify({ mods: { listItems: [] } }), { status: 200 })
+  }) as typeof fetch
+  try {
+    const here = onThisSite(env, new Request('https://dorai.test/api/pp/ask'))
+    assert.equal(here.SELF, 'https://dorai.test')
+    assert.deepEqual((await callPart(here, 'darazSearch', 'fan')).listings, [])
+    assert.equal(seen[0], 'https://dorai.test/api/pp/part?darazSearch')
+    assert.ok(seen[1].includes('daraz.com.bd'))
+
+    // Without env.SELF it runs in place.
+    seen.length = 0
+    await callPart(env, 'darazSearch', 'fan')
+    assert.ok(seen.every((u) => !u.includes('/api/pp/part')))
+  } finally {
+    globalThis.fetch = real
+  }
+
+  const ask = (headers: Record<string, string>, body: unknown) => partPost({ request: new Request('https://dorai.test/api/pp/part', { method: 'POST', headers, body: JSON.stringify(body) }), env })
+  const key = await partKey(env)
+  assert.equal((await ask({}, { name: 'darazSearch', args: ['fan'] })).status, 403)
+  assert.equal((await ask({ 'x-dorai-part': 'guess' }, { name: 'darazSearch', args: ['fan'] })).status, 403)
+  assert.equal((await ask({ 'x-dorai-part': key }, { name: 'constructor', args: [] })).status, 400)
+  assert.equal((await ask({ 'x-dorai-part': key }, { name: 'darazSearch' })).status, 400)
+  assert.notEqual(await partKey({ RATE_SALT: 'another' }), key)
+})
+
+test('a store whose read fails costs its own results, not the answer', async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db, SELF: 'https://dorai.test' }
+  const real = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const { name } = JSON.parse(String(init?.body)) as { name: string }
+    // The way Cloudflare answers when a request runs out of CPU.
+    if (name !== 'darazSearch') return new Response('error code: 1102', { status: 503 })
+    const item = { itemId: '111', name: 'Awei T50 Wireless Earbuds', price: '1150', itemUrl: '//www.daraz.com.bd/products/x-i111.html', image: '', sellerName: 'Shop', brandName: 'Awei', ratingScore: '4.5', review: '10', inStock: true }
+    return Response.json({ result: { listings: [listing('111', 'daraz', item.name, 1150)], categories: [], url: 'https://www.daraz.com.bd/catalog/?q=awei' } })
+  }) as typeof fetch
+  try {
+    const answer = await run({ name: 'Awei T50', details: '' }, env)
+    assert.equal(answer.stores.length, 3)
+    assert.equal(answer.stores.find((s) => s.site === 'daraz')?.recommended?.listing.itemId, '111')
+    assert.equal(answer.stores.find((s) => s.site === 'cartup')?.recommended, null)
+  } finally {
+    globalThis.fetch = real
+  }
 })
 
 test('a device proves itself with its token; only its hash is stored', async () => {

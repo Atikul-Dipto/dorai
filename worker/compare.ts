@@ -13,11 +13,10 @@
 import { closestFirst, compareAcross, type HotDeal, hotDeal, matchRows, recommendHere, relations, type Result, type StoreAnswer, UNBRANDED } from './agent.ts'
 import { CACHE_VERSION, readCache, writeCache } from './cache.ts'
 import * as cartup from './cartup.ts'
-import * as daraz from './daraz.ts'
-import * as othoba from './othoba.ts'
 import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { coreQuery } from './intent.ts'
 import { type ProductRef, readProductUrl } from './links.ts'
+import { callPart } from './parts.ts'
 import { mainModel } from './ranking.ts'
 import * as store from './store.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
@@ -96,22 +95,23 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   const db = env.PP_DB
   // A shared Daraz link has no title with it: the page's own is a better search than the address's words.
   let given = opts.name?.replace(/\s+/g, ' ').trim()
-  if (!given && ref.site === 'daraz') given = (await daraz.productTitle(ref.url).catch(() => null)) ?? undefined
+  if (!given && ref.site === 'daraz') given = (await callPart(env, 'darazTitle', ref.url).catch(() => null)) ?? undefined
   const name = (given || (ref.site === 'daraz' ? slugWords(ref.slug) : cartup.nameFromSlug(ref.slug))).slice(0, 200)
   const searches = [...new Set([name, coreQuery(name)].filter((q): q is string => Boolean(q)))]
+  const notRead: cartup.CartupLookup = { status: 'error', listings: [], indexedAt: null }
 
   // Both stores by name and by brand + model code (a seller's long title —
   // "Hoco EQ34 Plus Rima ANC+ENC TWS Earbuds - Bluetooth 5.4 - App Supported
   // Wireless Headphones - 7H Playtime..." — finds generic earbuds on Cartup;
   // "Hoco EQ34" finds it); the Cartup page itself when that's the source.
   const [darazHits, found, othobaFound, own] = await Promise.all([
-    Promise.all(searches.map((q) => daraz.search(q).catch(() => null))),
-    Promise.all(searches.map((q) => cartup.lookup(db, q))),
-    Promise.all(searches.map((q) => othoba.lookup(db, q))),
+    Promise.all(searches.map((q) => callPart(env, 'darazSearch', q).catch(() => null))),
+    Promise.all(searches.map((q) => callPart(env, 'cartupLookup', q).catch(() => notRead))),
+    Promise.all(searches.map((q) => callPart(env, 'othobaLookup', q).catch(() => notRead))),
     ref.site === 'cartup'
-      ? cartup.fetchProduct(ref.slug).catch(() => null)
+      ? callPart(env, 'cartupProduct', ref.slug).catch(() => null)
       : ref.site === 'othoba'
-        ? othoba.fetchProduct(ref.slug).catch(() => null)
+        ? callPart(env, 'othobaProduct', ref.slug).catch(() => null)
         : Promise.resolve(null),
   ])
   const unique = (ls: Listing[]) => [...new Map(ls.map((l) => [l.itemId, l])).values()]
@@ -124,7 +124,7 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   // An unbranded product from another store goes by its photo (agent.ts
   // `photoId`), so Daraz is also searched by its kind, where a retitled copy shows up.
   const short = source && ref.site !== 'daraz' && !darazDown && !mainModel(source.name) && UNBRANDED.test(source.brand.trim()) ? shortKind(source.name) : null
-  if (short) darazPool = unique([...darazPool, ...((await daraz.search(short).catch(() => null))?.listings ?? [])])
+  if (short) darazPool = unique([...darazPool, ...((await callPart(env, 'darazSearch', short).catch(() => null))?.listings ?? [])])
   if (!source) {
     return {
       error:
@@ -145,7 +145,7 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   if (db) {
     try {
       ;[history, { vouchers }] = await Promise.all([store.lookupHistory(db, everything), store.loadVouchers(db, nowIso.slice(0, 10))])
-      await store.recordListings(db, everything, nowIso)
+      await callPart(env, 'remember', everything, nowIso)
     } catch {
       // the answer never sinks with the database
     }

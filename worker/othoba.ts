@@ -121,20 +121,21 @@ export function bestHits(hits: SearchHit[], title: string, limit = MAX_PAGES): S
     .map((x) => x.h)
 }
 
-const readPages = async (slugs: string[]) => (await Promise.all(slugs.map((s) => fetchProduct(s).catch(() => null)))).filter((l): l is Listing => l !== null)
+type ReadPage = (slug: string) => Promise<Listing | null>
+const readPages = async (slugs: string[], read: ReadPage) => (await Promise.all(slugs.map((s) => read(s).catch(() => null)))).filter((l): l is Listing => l !== null)
 
 /** Othoba listings for a product title: its live search first, its name index if that fails. */
-export async function lookup(db: D1Database | undefined, title: string): Promise<CartupLookup> {
+export async function lookup(db: D1Database | undefined, title: string, read: ReadPage = fetchProduct): Promise<CartupLookup> {
   const hits = await search(title).catch(() => null)
   if (hits?.length) {
-    const listings = await readPages(bestHits(hits, title).map((h) => h.slug))
+    const listings = await readPages(bestHits(hits, title).map((h) => h.slug), read)
     if (listings.length) return { status: 'found', listings, indexedAt: null }
   }
   if (!db) return { status: hits ? 'not_found' : 'error', listings: [], indexedAt: null }
   try {
     const { slugs, meta } = await searchIndex(db, title, 'othoba')
     if (!meta) return { status: hits ? 'not_found' : 'no_index', listings: [], indexedAt: null }
-    const listings = await readPages(slugs.slice(0, MAX_PAGES))
+    const listings = await readPages(slugs.slice(0, MAX_PAGES), read)
     return { status: listings.length ? 'found' : 'not_found', listings, indexedAt: meta.built }
   } catch {
     return { status: 'error', listings: [], indexedAt: null }

@@ -17,6 +17,7 @@ import { admit, forGuest, giveBack, historyKey, reply, wall } from '../../../wor
 import { type Answer, type AskInput, run } from '../../../worker/agent.ts'
 import { readCache, searchKey, writeCache } from '../../../worker/cache.ts'
 import { json, preflight } from '../../../worker/http.ts'
+import { onThisSite } from '../../../worker/parts.ts'
 import { logAsk } from '../../../worker/store.ts'
 import type { Env } from '../../../worker/types.ts'
 
@@ -48,7 +49,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
     // where a store couldn't be reached isn't kept.
     const key = await searchKey([input.name, input.details, input.query])
     const hit = await readCache<Answer>(key)
-    const result = hit ? { ...hit, cached: true } : await run(input, env)
+    const result = hit ? { ...hit, cached: true } : await run(input, onThisSite(env, request))
     if (!hit && !result.stores.some((st) => st.note?.startsWith("Couldn't reach"))) waitUntil(writeCache(key, result, SEARCH_CACHE_SECONDS))
     // The cheapest of the stores' recommended options, for the record of how answers went.
     const picks = result.stores.map((st) => st.recommended).filter((r) => r !== null)

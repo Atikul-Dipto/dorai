@@ -77,6 +77,12 @@ Up to 10 per call. Answer: `{ recorded }`.
 The readout: counts per kind, opens by slot and relation, most opened
 offers, and the picks most often called not what was wanted.
 
+## Internal
+
+`POST /part` is one store read, made by this site's own search so that each read
+has its own CPU allowance (`worker/parts.ts`). It needs a key only the site can
+work out, and isn't for anything else.
+
 ## Accounts and the guest trial
 
 An account searches freely and sees every row of an answer. A guest has 5

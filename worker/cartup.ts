@@ -294,12 +294,12 @@ export async function fetchProduct(slug: string): Promise<Listing | null> {
 }
 
 /** Cartup listings for a product title, with live prices from their pages. */
-export async function lookup(db: D1Database | undefined, title: string): Promise<CartupLookup> {
+export async function lookup(db: D1Database | undefined, title: string, read: (slug: string) => Promise<Listing | null> = fetchProduct): Promise<CartupLookup> {
   if (!db) return { status: 'no_index', listings: [], indexedAt: null }
   try {
     const { slugs, meta } = await searchIndex(db, title)
     if (!meta) return { status: 'no_index', listings: [], indexedAt: null }
-    const pages = await Promise.all(slugs.slice(0, MAX_PAGES).map((s) => fetchProduct(s).catch(() => null)))
+    const pages = await Promise.all(slugs.slice(0, MAX_PAGES).map((s) => read(s).catch(() => null)))
     const listings = pages.filter((l): l is Listing => l !== null)
     return { status: listings.length ? 'found' : 'not_found', listings, indexedAt: meta.built }
   } catch {
@@ -322,7 +322,15 @@ export function stem(word: string): string {
   return word
 }
 
-const categoryWords = (slug: string) => slug.split(/[_-]+/).filter((w) => w && !/^\d+$/.test(w)).map(stem)
+// Every search goes over thousands of category names: their words are worked out once.
+const wordsOfCategory = new Map<string, string[]>()
+function categoryWords(slug: string): string[] {
+  const known = wordsOfCategory.get(slug)
+  if (known) return known
+  const words = slug.split(/[_-]+/).filter((w) => w && !/^\d+$/.test(w)).map(stem)
+  wordsOfCategory.set(slug, words)
+  return words
+}
 
 /**
  * The Cartup categories for a kind of item: "detergent" -> detergent (not
@@ -404,24 +412,24 @@ export interface Browsed {
   curated?: boolean // from Cartup's own menu: taken as the kind, whatever Daraz found
 }
 
-export async function browse(db: D1Database | undefined, kinds: string[]): Promise<Browsed> {
+/** One category page's in-stock-or-not listings. */
+export async function fetchCategory(category: string): Promise<Listing[]> {
+  const response = await fetch(`https://www.cartup.com/category/${category}`, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
+  return response.ok ? parseCategoryPage(await response.text()) : []
+}
+
+export async function browse(db: D1Database | undefined, kinds: string[], read: (category: string) => Promise<Listing[]> = fetchCategory): Promise<Browsed> {
   const none: Browsed = { listings: [], categories: [], byCategory: {} }
   if (!db) return none
   try {
     // Cartup's own menu section first; its listings needn't say the kind ("OPPO A6c 4GB/64GB" is a phone).
     const menu = pickMenu(kinds, await loadMenu(db))
     const categories = menu.length ? menu : pickCategories(kinds, await loadCategories(db))
-    const pages = await Promise.all(
-      categories.map((c) =>
-        fetch(`https://www.cartup.com/category/${c}`, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
-          .then((r) => (r.ok ? r.text() : ''))
-          .catch(() => ''),
-      ),
-    )
+    const pages = await Promise.all(categories.map((c) => read(c).catch(() => [])))
     const kindWords = new Set(kinds.flatMap((k) => tokens(k).map(stem)))
     const namesKind = (l: Listing) => tokens(l.name).some((w) => kindWords.has(stem(w)))
     const byCategory: Record<string, Listing[]> = {}
-    categories.forEach((c, i) => (byCategory[c] = parseCategoryPage(pages[i]).filter((l) => l.inStock && (menu.length > 0 || namesKind(l)))))
+    categories.forEach((c, i) => (byCategory[c] = pages[i].filter((l) => l.inStock && (menu.length > 0 || namesKind(l)))))
     return { listings: [...new Map(Object.values(byCategory).flat().map((l) => [l.itemId, l])).values()], categories, byCategory, curated: menu.length > 0 }
   } catch {
     return none

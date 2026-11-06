@@ -27,14 +27,13 @@
 import * as cartup from './cartup.ts'
 import { type CatalogProduct, findProducts } from './catalog.ts'
 import * as daraz from './daraz.ts'
-import * as othoba from './othoba.ts'
 import { bestOffer, closestFirst, compareAcross, firstOffer, type HotDeal, hotDeal, needWhy, recommendHere, type Result, type StoreAnswer, type StoreMatch, summarize } from './comparison.ts'
 import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { buildIntent, coreQuery, describeQuery, parseIntent } from './intent.ts'
 import { matchRows, relations, type Row, sameProduct, samePicks, sharedPick } from './matching.ts'
+import { callPart } from './parts.ts'
 import { mainModel, rank } from './ranking.ts'
 import * as store from './store.ts'
-import { STORES } from './stores.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
 
 // The engines this orchestrator drives, re-exported for the compare service and the tests.
@@ -123,22 +122,27 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   const nearBudget =
     !named && intent.maxPrice ? { minPrice: Math.max(intent.minPrice ?? 0, Math.round(intent.maxPrice * 0.5)), maxPrice: intent.maxPrice } : null
   const refined = !named ? (intent.refinedQuery ?? null) : null
-  const optional = (q: string | null, opts: Parameters<typeof daraz.search>[1] = {}) => (q ? daraz.search(q, opts).catch(() => null) : Promise.resolve(null))
+  // Each store read is a request of its own (parts.ts). A store that fails costs its own results, not the answer.
+  const darazSearch = (q: string, opts: Parameters<typeof daraz.search>[1] = {}) => callPart(env, 'darazSearch', q, opts)
+  const notRead: cartup.CartupLookup = { status: 'error', listings: [], indexedAt: null }
+  const lookOnCartup = (title: string) => callPart(env, 'cartupLookup', title).catch(() => notRead)
+  const lookOnOthoba = (title: string) => callPart(env, 'othobaLookup', title).catch(() => notRead)
+  const optional = (q: string | null, opts: Parameters<typeof daraz.search>[1] = {}) => (q ? darazSearch(q, opts).catch(() => null) : Promise.resolve(null))
 
   // Cartup runs alongside: what was typed through its name index, and the
   // kind of item through its category pages (for a named product, its kind's
   // categories give the similar items). A kind of item needs both: Cartup's
   // Radhuni mustard oil is in no "mustard oil" category, and "lotto" has none.
   const kinds = named ? namedKinds(intent.searchQuery) : [intent.refinedQuery, intent.productType, intent.searchQuery].filter((k): k is string => Boolean(k))
-  const cartupLookup = cartup.lookup(db, intent.searchQuery)
-  const othobaLookup = othoba.lookup(db, intent.searchQuery)
+  const cartupLookup = lookOnCartup(intent.searchQuery)
+  const othobaLookup = lookOnOthoba(intent.searchQuery)
   // DorAI's own catalogue, alongside the stores: what it already knows the named product is, on every store.
   const catalogFind: Promise<CatalogProduct[]> = named && db ? findProducts(db, intent.searchQuery).catch(() => []) : Promise.resolve([])
-  const cartupBrowse = kinds.length ? cartup.browse(db, kinds) : Promise.resolve(null)
+  const cartupBrowse = kinds.length ? callPart(env, 'cartupBrowse', kinds).catch(() => null) : Promise.resolve(null)
   // Daraz sometimes answers with a bot check instead of results; Cartup still answers then.
   let darazDown = false
   const [first, coreHits, alt, nearHits, refinedHits] = await Promise.all([
-    daraz.search(intent.searchQuery, named ? {} : budget).catch(() => {
+    darazSearch(intent.searchQuery, named ? {} : budget).catch(() => {
       darazDown = true
       return { listings: [], categories: [], url: `https://www.daraz.com.bd/catalog/?q=${encodeURIComponent(intent.searchQuery)}` }
     }),
@@ -157,9 +161,9 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
 
   if (ranked.length < MIN_GOOD_RESULTS && ranked.length > 0) {
     // The best real hit's own category (its product page knows it).
-    const category = await daraz.productCategory(ranked[0].url).catch(() => null)
+    const category = await callPart(env, 'darazCategory', ranked[0].url).catch(() => null)
     if (category) {
-      const scoped = await daraz.search(intent.searchQuery, { category, ...(named ? {} : budget) })
+      const scoped = await darazSearch(intent.searchQuery, { category, ...(named ? {} : budget) }).catch(() => first)
       // Merge, never replace: an oddly filed seed must not hide the first search's hits.
       const merged = new Map([...pool, ...scoped.listings].map((l) => [l.itemId, l]))
       darazAll = [...darazAll, ...scoped.listings]
@@ -183,11 +187,11 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   // again on Daraz itself (its other sellers and sizes), while Cartup's own
   // lookups finish.
   const darazPick = named ? null : (ranked[0] ?? null)
-  const othobaPickLookup = darazPick ? othoba.lookup(db, darazPick.name) : Promise.resolve(null)
+  const othobaPickLookup = darazPick ? lookOnOthoba(darazPick.name) : Promise.resolve(null)
   const [found, browsedRaw, pickLookup, pickHits] = await Promise.all([
     cartupLookup,
     cartupBrowse,
-    darazPick ? cartup.lookup(db, darazPick.name) : Promise.resolve(null),
+    darazPick ? lookOnCartup(darazPick.name) : Promise.resolve(null),
     darazPick ? optional(coreQuery(darazPick.name) ?? darazPick.name.split(/\s+/).slice(0, 6).join(' ')) : Promise.resolve(null),
   ])
   darazAll = [...darazAll, ...(pickHits?.listings ?? [])]
@@ -206,7 +210,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     .filter((l) => !l.seller)
     .slice(0, 4)
   if (toShow.length) {
-    const full = new Map((await cartup.enrich(toShow)).map((l) => [l.itemId, l]))
+    const full = new Map((await callPart(env, 'cartupEnrich', toShow).catch(() => toShow)).map((l) => [l.itemId, l]))
     cartupPool = cartupPool.map((l) => full.get(l.itemId) ?? l)
   }
   const cartupRanked = named ? [] : rank(cartupPool, intent, RESULT_LIMIT).ranked
@@ -216,7 +220,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   // Daraz searched for it too, as Cartup was for Daraz's pick.
   if (cartupPick && !(darazPick && samePicks(darazPick, cartupPick))) {
     const [own, onDaraz] = await Promise.all([
-      cartup.lookup(db, cartupPick.name),
+      lookOnCartup(cartupPick.name),
       named ? Promise.resolve(null) : optional(coreQuery(cartupPick.name) ?? cartupPick.name.split(/\s+/).slice(0, 6).join(' ')),
     ])
     cartupPool = unique([...cartupPool, ...own.listings])
@@ -255,8 +259,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
       const first = offers[0]
       if (first && !sameOn[site].length && !(site === 'daraz' && darazDown)) {
         rereads.push(
-          STORES[site]
-            .current({ itemId: first.itemId, url: first.url, name: first.name }, env)
+          callPart(env, 'storeCurrent', site, { itemId: first.itemId, url: first.url, name: first.name })
             .then((l) => (l ? vouch(site, l) : undefined))
             .catch(() => undefined),
         )
@@ -330,7 +333,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   if (db) {
     try {
       ;[history, { vouchers, harvestedAt }] = await Promise.all([store.lookupHistory(db, everything), store.loadVouchers(db, today)])
-      if (everything.length) await store.recordListings(db, everything, nowIso)
+      if (everything.length) await callPart(env, 'remember', everything, nowIso)
     } catch {
       database = 'unavailable' // the answer must never sink with the database
     }

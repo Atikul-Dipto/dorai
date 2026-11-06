@@ -31,7 +31,18 @@ export const QUANTITY_RE = /(\d+(?:\.\d+)?)\s*(kg|g|gm|gram|grams|l|ltr|litre|li
 const UNIT_RE = /^(kg|g|gm|gram|grams|l|ltr|litre|liter|litres|liters|ml|pcs|pc|pack)$/
 export const UNIT_ALIASES: Record<string, string> = { gm: 'g', gram: 'g', grams: 'g', ltr: 'l', litre: 'l', liter: 'l', pc: 'pcs' }
 
-export const tokens = (text: string): string[] => text.toLowerCase().match(/[a-z0-9]+/g) ?? []
+// A search goes over the same titles many times, and the free plan's CPU is
+// short, so a title's words are worked out once. Callers mustn't change the array.
+const TOKEN_MEMORY = 4000
+const seenTokens = new Map<string, string[]>()
+export function tokens(text: string): string[] {
+  const known = seenTokens.get(text)
+  if (known) return known
+  const words = text.toLowerCase().match(/[a-z0-9]+/g) ?? []
+  if (seenTokens.size >= TOKEN_MEMORY) seenTokens.clear()
+  seenTokens.set(text, words)
+  return words
+}
 export const compact = (text: string) => tokens(text).join('')
 
 const isDigit = (ch: string | undefined) => ch !== undefined && ch >= '0' && ch <= '9'
@@ -169,7 +180,7 @@ export function modelTokens(queryTokens: string[]): string[] {
 }
 
 const nearSpelling = (a: string, b: string) =>
-  /^[a-z]{4,}$/.test(a) && /^[a-z]{4,}$/.test(b) && Math.abs(a.length - b.length) <= 2 && (a.startsWith(b) || b.startsWith(a))
+  Math.abs(a.length - b.length) <= 2 && (a.startsWith(b) || b.startsWith(a)) && /^[a-z]{4,}$/.test(a) && /^[a-z]{4,}$/.test(b)
 
 /**
  * Which of `want` (a title's words, in order) a name has, the way sellers
@@ -178,9 +189,10 @@ const nearSpelling = (a: string, b: string) =>
  * "kl699" is not near "kl69".
  */
 export function foundWords(want: string[], name: string): string[] {
-  const have = new Set(tokens(name))
+  const words = tokens(name)
+  const have = new Set(words)
   return want.filter(
-    (w, i) => have.has(w) || [...have].some((h) => nearSpelling(w, h) || (want[i + 1] && h === w + want[i + 1]) || (i > 0 && h === want[i - 1] + w)),
+    (w, i) => have.has(w) || words.some((h) => nearSpelling(w, h) || (want[i + 1] && h === w + want[i + 1]) || (i > 0 && h === want[i - 1] + w)),
   )
 }
 

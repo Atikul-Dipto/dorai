@@ -5,6 +5,11 @@ has the detail.
 
 ## 2026-11-07
 
+- **Search no longer dies when it's busy.** A search used about 30 ms of CPU
+  against the free plan's 10 ms a request. Cloudflare tolerates that now and
+  then, then kills requests (error 1102) until the deployment is replaced, and
+  search was down that way on 2026-11-06. Each store read now runs as a request
+  of its own.
 - **Alerts in Brave.** Brave keeps Google's push service off by default, so it
   refuses every push subscription. The watchlist now says which setting to turn
   on, instead of showing the browser's own error.

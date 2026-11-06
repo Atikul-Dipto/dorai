@@ -15,6 +15,7 @@
 import { admit, forGuest, giveBack, historyKey, NOT_COUNTED, reply, wall } from '../../../worker/access.ts'
 import { compare, resolveShared } from '../../../worker/compare.ts'
 import { json, preflight } from '../../../worker/http.ts'
+import { onThisSite } from '../../../worker/parts.ts'
 import { logAsk } from '../../../worker/store.ts'
 import type { Env } from '../../../worker/types.ts'
 
@@ -31,7 +32,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { link?: unknown; n
   if (!ref) return json(request, { error: "That isn't a Daraz or Cartup product link." }, 400)
   const access = request.method === 'POST' ? await admit(request, env, new Date(askedAt)) : NOT_COUNTED
   if (!access.allowed) return wall(request, access)
-  const result = await compare(ref, env, { name })
+  const result = await compare(ref, onThisSite(env, request), { name })
   const visitor = await historyKey(env, access, raw.visitor)
   // A cached repeat still belongs in a shopper's history.
   if (env.PP_DB && (visitor || !('cached' in result && result.cached))) {

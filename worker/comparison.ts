@@ -5,8 +5,8 @@
  */
 
 import { money } from './eligibility.ts'
-import { type RowRelation, samePicks, words } from './matching.ts'
-import { missingWords, storageOf, trusted } from './ranking.ts'
+import { relations, type RowRelation, samePicks, words } from './matching.ts'
+import { compact, mainModel, missingWords, storageOf, tokens, trusted } from './ranking.ts'
 import type { HistoryMatch, Intent, Listing, VoucherCheck } from './types.ts'
 
 // Below this, leaving the closest-named trusted listing for a cheaper one isn't worth it.
@@ -192,4 +192,40 @@ export function summarize(stores: StoreAnswer[]): string {
   return stores
     .map((s) => (s.recommended ? `${s.label}: ${s.recommended.listing.name} at ${money(s.recommended.finalPrice)} from ${s.recommended.listing.seller || s.label}.` : `${s.label}: ${s.note ?? 'nothing found.'}`))
     .join(' ')
+}
+
+/**
+ * A kind of item on several shops: each shop's own best fit can be a
+ * different product at a different price (a ৳343 Bluetooth headphone, a
+ * ৳14,500 Logitech G PRO X), which isn't a comparison. This finds the product
+ * among the shops' top fits that the most of the shops shown sell, at least
+ * two, and where each sells it. Only the top few fits are tried, against each
+ * shop's own listings, to keep within the CPU a request has.
+ */
+export function alikeAcross(shops: string[], fitsOf: Record<string, Listing[]>, poolOf: Record<string, Listing[]>, perShop = 3): { anchor: Listing; on: Record<string, Listing[]> } | null {
+  let best: { anchor: Listing; on: Record<string, Listing[]>; score: number } | null = null
+  // Each shop's listings once, in stock.
+  const pools = Object.fromEntries(shops.map((site) => [site, [...new Map((poolOf[site] ?? []).filter((l) => l.inStock).map((l) => [l.itemId, l])).values()]]))
+  for (const home of shops) {
+    ;(fitsOf[home] ?? []).slice(0, perShop).forEach((candidate, rank) => {
+      // The full comparison is slow, so a listing must first share the
+      // candidate's model code, or most of its words, to be compared at all.
+      const model = mainModel(candidate.name)
+      const want = [...new Set(tokens(candidate.name).filter((w) => w.length > 2))]
+      const near = (l: Listing) =>
+        model ? compact(l.name).includes(model) : want.filter((w) => tokens(l.name).includes(w)).length >= Math.ceil(want.length * 0.6)
+      // The candidate's title is worked out once, then each near listing judged against it.
+      const relate = relations(candidate.name, candidate)
+      const on: Record<string, Listing[]> = {}
+      for (const site of shops) {
+        const here = pools[site].filter((l) => l.itemId === candidate.itemId || (near(l) && relate(l) === 'same'))
+        if (here.length) on[site] = here
+      }
+      // Most shops first, then the better-ranked fit.
+      const score = Object.keys(on).length * 100 - rank
+      if (Object.keys(on).length >= 2 && (!best || score > best.score)) best = { anchor: candidate, on, score }
+    })
+  }
+  const found = best as { anchor: Listing; on: Record<string, Listing[]> } | null // set inside the loop's callbacks
+  return found && { anchor: found.anchor, on: found.on }
 }

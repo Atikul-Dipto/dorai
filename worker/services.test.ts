@@ -762,3 +762,34 @@ test("Star Tech's one listing for every memory version isn't claimed as the vers
     globalThis.fetch = real
   }
 })
+
+test('a kind of item: the cards show the same product where the shops sell one, and say so where they don\'t', async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db, SELF: 'https://dorai.test' }
+  const item = (site: Listing['site'], id: string, name: string, price: number, extra: Partial<Listing> = {}) => ({ ...listing(id, site, name, price), rating: 4.6, reviews: 40, ...extra })
+  const daraz = [item('daraz', '1', 'P9 Bluetooth Wireless Gaming Headset With Microphone', 343, { rating: 4.6, reviews: 78 }), item('daraz', '2', 'Logitech G435 Lightspeed Wireless Gaming Headset', 7900)]
+  const pickaboo = [item('pickaboo', 'pickaboo:9', 'Logitech G PRO X Gaming Headset with Blue Voice', 14500, { storeRun: true, seller: 'Pickaboo' }), item('pickaboo', 'pickaboo:8', 'Logitech G435 Gaming Headset', 7600, { storeRun: true, seller: 'Pickaboo' })]
+  const startech = [item('startech', 'startech:meetion', 'Meetion HP022 Noise-Cancelling RGB Wired Gaming Headset', 850, { storeRun: true, seller: 'Star Tech' })]
+  const real = globalThis.fetch
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const { name } = JSON.parse(String(init?.body)) as { name: string }
+    if (name === 'darazSearch') return Response.json({ result: { listings: daraz, categories: [], url: 'https://www.daraz.com.bd/catalog/?q=gaming+headset' } })
+    if (name === 'startechSearch') return Response.json({ result: startech })
+    if (name === 'pickabooSearch') return Response.json({ result: pickaboo })
+    return Response.json({ result: null })
+  }) as typeof fetch
+  try {
+    const answer = await run({ name: 'gaming headset', details: '' }, env)
+    assert.equal(answer.intent.mode, 'need')
+    assert.deepEqual(answer.alike?.shops, ['daraz', 'pickaboo'])
+    assert.match(answer.alike?.name ?? '', /Logitech G435/)
+    const pick = (site: string) => answer.stores.find((s) => s.site === site)!
+    assert.equal(pick('daraz').recommended?.listing.itemId, '2')
+    assert.equal(pick('pickaboo').recommended?.listing.itemId, 'pickaboo:8')
+    assert.ok(pick('pickaboo').matches.some((m) => m.listing.itemId === 'pickaboo:9')) // its own fit moves below
+    assert.equal(pick('startech').recommended?.listing.itemId, 'startech:meetion')
+    assert.match(pick('startech').note ?? '', /doesn't sell that one/)
+  } finally {
+    globalThis.fetch = real
+  }
+})

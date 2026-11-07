@@ -45,6 +45,8 @@
 .store-section.othoba { border-top-color: #c99bb9; }
 .store-section.startech { border-top-color: #f0936c; }
 .store-section.pickaboo { border-top-color: #8fb8e0; }
+.alike-note { margin: 0 0 12px; padding: 10px 14px; color: var(--ink-2); background: var(--tint); border-left: 3px solid var(--plum); border-radius: 8px; font-size: 14px; line-height: 1.5; }
+.alike-note.different { background: var(--warn-bg); border-left-color: var(--peach); }
 .shop-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; padding: 12px 14px; background: var(--tint); border-radius: var(--radius); }
 .shop-picker-title { margin-right: 4px; color: var(--ink); font-size: 14px; font-weight: 700; }
 .shop-chip[aria-pressed='true'] { color: #fff; background: var(--plum); border-color: var(--plum); }

@@ -5,6 +5,13 @@ has the detail.
 
 ## 2026-11-07
 
+- **A kind of item compares the same product.** Each shop's own best fit could
+  be a different product at a very different price (a ৳343 Bluetooth headphone
+  against a ৳14,500 Logitech G PRO X). Now the product most of the shops sell
+  is shown on each one that has it, found among their top fits and by a few
+  follow-up searches by name (Daraz at most once). When none is shared, the
+  answer says each card is that shop's own best fit. Star Tech's "Gaming
+  Headphone" now counts as a headset.
 - **Star Tech and Pickaboo**, two electronics retailers, join as shops. A search
   compares three shops: Daraz, Cartup and Othoba for most things; for
   electronics, Daraz, Star Tech and Pickaboo unless the shopper picks another

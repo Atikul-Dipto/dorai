@@ -27,7 +27,7 @@
 import * as cartup from './cartup.ts'
 import { type CatalogProduct, findProducts } from './catalog.ts'
 import * as daraz from './daraz.ts'
-import { bestOffer, closestFirst, compareAcross, firstOffer, type HotDeal, hotDeal, needWhy, recommendHere, type Result, type StoreAnswer, type StoreMatch, summarize } from './comparison.ts'
+import { alikeAcross, bestOffer, closestFirst, compareAcross, firstOffer, type HotDeal, hotDeal, needWhy, recommendHere, type Result, type StoreAnswer, type StoreMatch, summarize } from './comparison.ts'
 import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { buildIntent, coreQuery, describeQuery, parseIntent } from './intent.ts'
 import { matchRows, relations, type Row, sameProduct, samePicks, sharedPick } from './matching.ts'
@@ -44,6 +44,9 @@ export { matchRows, photoId, relations, type Row, sameProduct, sharedPick, UNBRA
 const MIN_GOOD_RESULTS = 5
 const RESULT_LIMIT = 6
 const MATCH_LIMIT = 8
+// A kind of item: searches by name for a product the shops may share (see "the same product across the shops").
+const MAX_FOLLOW_UPS = 3
+const MAX_DARAZ_FOLLOW_UPS = 1
 
 export const CAVEATS = [
   'Vouchers are checked against their published terms (dates, minimum spend, cap, badges). Daraz makes the final call at checkout.',
@@ -70,6 +73,8 @@ export interface Answer {
   // The canonical product DorAI's catalogue knows a named product as, and the
   // offers in this answer it vouched for (each priced live, here).
   catalogue: { productId: number; name: string; confirmed: string[] } | null
+  // A kind of item: the same product on several of the shops shown (null when none sell one in common).
+  alike: { name: string; shops: string[] } | null
   caveats: string[]
   timingsMs: Record<string, number>
 }
@@ -350,7 +355,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
       const rows = named
         ? matchRows({ intent, title: intent.searchQuery, ref: same[0] ?? ranked[0] ?? null, same, pool })
         : needRows(fit, pool, darazFit ? { label: 'Daraz', listing: darazFit } : null, fits.filter((l) => l !== fit))
-      return { site, reached: found !== null, same, fits, fit, rows, unsized }
+      return { site, reached: found !== null, same, fits, fit, rows, unsized, pool: choosable }
     }),
   )
   lap('retailers')
@@ -501,6 +506,61 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   if (darazDown) darazStore.note = "Couldn't reach Daraz just now — try again in a moment."
   const bySite = new Map<string, StoreAnswer>([darazStore, cartupStore, othobaStore, ...retailerStores].map((s) => [s.site, s]))
   const stores = shops.map((site) => bySite.get(site)).filter((s): s is StoreAnswer => s !== undefined)
+  // ---- a kind of item: the same product across the shops, where there is one ----
+  let alike: Answer['alike'] = null
+  if (!named) {
+    const fitsOf: Record<string, Listing[]> = { daraz: ranked, cartup: cartupRanked, othoba: othobaRanked }
+    const poolOf: Record<string, Listing[]> = { daraz: darazAll, cartup: cartupPool, othoba: othobaPool }
+    for (const r of retailerPicks) {
+      fitsOf[r.site] = r.fits
+      poolOf[r.site] = r.pool
+    }
+    // A shop's search for the kind can miss a product it sells ("wireless mouse"
+    // on Daraz lists no Logitech B175): the leading candidate, or each shop's own
+    // top fit when none is shared yet, is searched for by name on the other shops.
+    const searchOn = async (site: Site, q: string): Promise<Listing[]> => {
+      if (site === 'daraz') return (await optional(q))?.listings ?? []
+      if (site === 'cartup') return (await lookOnCartup(q)).listings
+      if (site === 'othoba') return (await lookOnOthoba(q)).listings
+      return (await callPart(env, site === 'startech' ? 'startechSearch' : 'pickabooSearch', q).catch(() => null)) ?? []
+    }
+    let shared = alikeAcross(shops, fitsOf, poolOf)
+    if (!shared || Object.keys(shared.on).length < shops.length) {
+      const known = shared
+      const leading = known ? [known.anchor] : shops.flatMap((s) => fitsOf[s]?.slice(0, 1) ?? [])
+      const asks = new Map<string, { site: Site; q: string }>()
+      for (const c of leading) {
+        const q = coreQuery(c.name) ?? c.name.split(/\s+/).slice(0, 6).join(' ')
+        for (const site of shops) if (site !== c.site && !known?.on[site]) asks.set(`${site}|${q}`, { site, q })
+      }
+      // Few, and Daraz at most once: Daraz bot-checks Cloudflare when it's asked too often.
+      let darazAsks = 0
+      const chosen = [...asks.values()].filter(({ site }) => site !== 'daraz' || darazAsks++ < MAX_DARAZ_FOLLOW_UPS).slice(0, MAX_FOLLOW_UPS)
+      const more = await Promise.all(chosen.map(async ({ site, q }) => ({ site, listings: await searchOn(site, q) })))
+      for (const { site, listings } of more) poolOf[site] = [...(poolOf[site] ?? []), ...listings]
+      shared = alikeAcross(shops, fitsOf, poolOf)
+    }
+    const found = shared
+    if (found) {
+      alike = { name: found.anchor.name, shops: shops.filter((s) => found.on[s]) }
+      for (const store of stores) {
+        const here = found.on[store.site]
+        if (!here) {
+          store.note = `${store.label} doesn't sell that one; this is its own best fit.`
+          continue
+        }
+        const pick = toResult(firstOffer(here))
+        const was = store.recommended
+        if (was?.listing.itemId !== pick.listing.itemId) {
+          store.recommended = pick
+          const before: StoreMatch[] = was ? [{ ...was, relation: 'fits', label: 'Also fits' }] : []
+          store.matches = [...before, ...store.matches.filter((m) => m.listing.itemId !== pick.listing.itemId)].slice(0, MATCH_LIMIT)
+        }
+        store.why = `The same product on ${alike.shops.length} of these shops, so the prices compare like for like.`
+        store.note = null
+      }
+    }
+  }
   compareAcross(stores)
   const summary = summarize(stores)
   lap('check')
@@ -522,6 +582,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     vouchersHarvestedAt: harvestedAt,
     database,
     catalogue: known && { productId: known.id, name: known.name, confirmed: [...new Set(confirmed)] },
+    alike,
     caveats: CAVEATS,
     timingsMs: timings,
   }

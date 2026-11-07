@@ -231,6 +231,9 @@ const SAME_THING: Record<string, string[]> = {
   smartphone: ['mobile'], // not 'phone': a feature phone isn't a smartphone
   earphone: ['earbuds', 'earbud', 'headphone', 'headset'],
   earbuds: ['earbud', 'earphone', 'tws'],
+  // Star Tech calls every headset a "Gaming Headphone".
+  headset: ['headphone'],
+  headphone: ['headset'],
 }
 
 function wordsCovered(words: string[], name: string): number {

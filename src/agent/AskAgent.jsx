@@ -503,6 +503,8 @@ function Answer({ answer, onShops }) {
       )}
       <Understood intent={answer.intent} />
       {answer.segment === 'electronics' && onShops && <ShopPicker shops={answer.shops} onShops={onShops} />}
+      {!named && answer.alike && <p className="alike-note">{t.alike(answer.alike.name, answer.alike.shops.map((s) => STORE_LABEL[s] ?? s).join(', '))}</p>}
+      {!named && !answer.alike && stores.filter((s) => s.recommended).length > 1 && <p className="alike-note different">{t.notAlike}</p>}
       <p className="searched-where">{t.searched(where, clock(answer.checkedAt, lang))}</p>
 
       {answer.hotDeal && <HotDealBanner deal={answer.hotDeal} query={answer.query} />}

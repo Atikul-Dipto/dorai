@@ -166,6 +166,9 @@ export const STRINGS = {
     deleteBody: 'অ্যাকাউন্ট ও খোঁজের ইতিহাস স্থায়ীভাবে মুছে যাবে। নিশ্চিত করতে পাসওয়ার্ড দিন।',
     guestLeft: (n, limit) => `${limit.toLocaleString('bn-BD')}টির মধ্যে ${n.toLocaleString('bn-BD')}টি ফ্রি খোঁজ বাকি।`,
     guestNone: 'ফ্রি খোঁজ শেষ।',
+    shopsTitle: 'কোন ৩টি দোকানে দাম মেলাবেন?',
+    shopsLeft: (n) => `আরও ${n.toLocaleString('bn-BD')}টি বেছে নিন`,
+    ownStock: 'দোকানের নিজের পণ্য',
     linkGone: (store) => `এই লিংকের পণ্যটি এখন ${store}-এ দেখা যাচ্ছে না। তাই নাম দিয়ে তিনটি দোকানে খুঁজে দেখলাম:`,
     moreLocked: (n) => `লগ ইন করলে আরও ${n.toLocaleString('bn-BD')}টি অফার দেখবেন`,
     accountErrors: {
@@ -334,6 +337,9 @@ export const STRINGS = {
     deleteBody: 'The account and its search history go for good. Enter your password to confirm.',
     guestLeft: (n, limit) => `${n} of ${limit} free searches left.`,
     guestNone: 'Your free searches are used up.',
+    shopsTitle: 'Compare on which 3 shops?',
+    shopsLeft: (n) => `Pick ${n} more`,
+    ownStock: "The shop's own stock",
     linkGone: (store) => `${store} isn't showing this listing right now, so DorAI searched all three stores by its name:`,
     moreLocked: (n) => `Log in to see ${n} more offer${n > 1 ? 's' : ''}`,
     accountErrors: {

@@ -4,7 +4,7 @@ import { useAccount } from './account.js'
 import { askAgent, compareLink } from './api.js'
 import { track } from './events.js'
 import { money } from './format.js'
-import { STORE_LABEL, STORE_LINK } from './stores.js'
+import { ALL_SHOPS, saveShops, SHOPS_PER_SEARCH, STORE_LABEL, STORE_LINK } from './stores.js'
 import { useWatchlist } from './watchlist.js'
 
 // One big box: a product name (searched exactly as typed — long, specific
@@ -195,10 +195,12 @@ function VoucherChecks({ checks }) {
 }
 
 function Seller({ listing }) {
+  const { t } = useLang()
   return (
     <p className="seller">
       {listing.seller}
       {listing.officialStore && <b className="badge badge-strong">Daraz Mall</b>}
+      {listing.storeRun && <b className="badge badge-strong">{t.ownStock}</b>}
       {listing.location === 'Overseas' && <b className="badge badge-warm">Ships from overseas</b>}
       {listing.rating ? (
         <span>
@@ -448,7 +450,38 @@ function StoreSection({ store, named, query, hot }) {
 
 const categoryLabel = (slug) => slug.replace(/_\d+$/, '').replace(/_+/g, ' ')
 
-function Answer({ answer }) {
+/** Electronics: which three shops to compare on. Reaching three again runs the search on them. */
+function ShopPicker({ shops, onShops }) {
+  const { t } = useLang()
+  const [picked, setPicked] = useState(shops)
+  useEffect(() => setPicked(shops), [shops])
+  const toggle = (site) => {
+    const next = picked.includes(site) ? picked.filter((s) => s !== site) : picked.length < SHOPS_PER_SEARCH ? [...picked, site] : picked
+    setPicked(next)
+    if (next.length === SHOPS_PER_SEARCH && next.some((s) => !shops.includes(s))) onShops(ALL_SHOPS.filter((s) => next.includes(s)))
+  }
+  const left = SHOPS_PER_SEARCH - picked.length
+  return (
+    <div className="shop-picker" role="group" aria-label={t.shopsTitle}>
+      <span className="shop-picker-title">{t.shopsTitle}</span>
+      {ALL_SHOPS.map((site) => (
+        <button
+          type="button"
+          key={site}
+          className={`chip shop-chip ${site}`}
+          aria-pressed={picked.includes(site)}
+          disabled={!picked.includes(site) && left === 0}
+          onClick={() => toggle(site)}
+        >
+          {STORE_LABEL[site]}
+        </button>
+      ))}
+      {left > 0 && <span className="shop-picker-hint">{t.shopsLeft(left)}</span>}
+    </div>
+  )
+}
+
+function Answer({ answer, onShops }) {
   const { t, lang } = useLang()
   const named = answer.intent.mode === 'product'
   const stores = answer.stores ?? []
@@ -469,6 +502,7 @@ function Answer({ answer }) {
         </p>
       )}
       <Understood intent={answer.intent} />
+      {answer.segment === 'electronics' && onShops && <ShopPicker shops={answer.shops} onShops={onShops} />}
       <p className="searched-where">{t.searched(where, clock(answer.checkedAt, lang))}</p>
 
       {answer.hotDeal && <HotDealBanner deal={answer.hotDeal} query={answer.query} />}
@@ -801,7 +835,13 @@ export default function AskAgent({ stats, request }) {
             </button>
           </div>
         )}
-        {state.status === 'done' && state.answer && (state.answer.source ? <Comparison answer={state.answer} /> : <Answer answer={state.answer} />)}
+        {state.status === 'done' && state.answer && (state.answer.source ? <Comparison answer={state.answer} /> : <Answer
+              answer={state.answer}
+              onShops={(shops) => {
+                saveShops(shops)
+                run(state.asked, { push: false })
+              }}
+            />)}
       </div>
     </>
   )

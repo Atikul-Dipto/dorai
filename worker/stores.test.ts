@@ -105,3 +105,46 @@ test("Othoba's live search: its results, best-named first, then their product pa
     globalThis.fetch = real
   }
 })
+
+// ---- Star Tech and Pickaboo, read from the markup their pages use (2026-11-07) ----
+import { parseSearchPage as parseStartech } from './startech.ts'
+import { parseSearchPage as parsePickaboo } from './pickaboo.ts'
+import { segmentOf, shopsFor } from './segments.ts'
+
+test('Star Tech: name, link, sale and old price, stock; a result with no price is left out', () => {
+  const item = (name: string, slug: string, price: string) =>
+    `<div class="p-item"> <div class="p-item-inner"> <div class="p-item-img"><a href="https://www.startech.com.bd/${slug}"><img src="https://www.startech.com.bd/image/${slug}.webp" alt="${name}"></a></div> <div class="p-item-details"> <h4 class="p-item-name"> <a href="https://www.startech.com.bd/${slug}">${name} </a></h4> <div class="short-description"> <ul><li>Connectivity: Wired </li></ul> </div> <div class="p-item-price"> ${price} </div></div></div></div>`
+  const html =
+    item('Logitech K120 USB Keyboard With Bangla', 'logitech-k120-keyboard', '<span>845৳</span>') +
+    item('Fantech X9 Thor Gaming Mouse', 'fantech-x9', '<span class="price-new">2,499৳</span> <span class="price-old">2,950৳</span>') +
+    item('Upcoming Phone', 'upcoming', '<span>Up Coming</span>')
+  const [k120, x9, ...rest] = parseStartech(html)
+  assert.equal(rest.length, 0)
+  assert.equal(k120.name, 'Logitech K120 USB Keyboard With Bangla')
+  assert.equal(k120.price, 845)
+  assert.equal(k120.itemId, 'startech:logitech-k120-keyboard')
+  assert.equal(k120.storeRun, true)
+  assert.deepEqual([x9.price, x9.originalPrice, x9.discountPercent], [2499, 2950, 15])
+  assert.deepEqual(k120.highlights, ['Connectivity: Wired'])
+})
+
+test('Pickaboo: its search page data, regular and sale price, stock, and coming soon as not in stock', () => {
+  const product = (o: Record<string, unknown>) => JSON.stringify(o).replace(/"/g, '\\"')
+  const html = `self.__next_f.push([1,"[\\"products\\":[${product({ id: '113236', express_delivery: '0', product_name: 'Samsung Galaxy A17 5G 6GB/128GB', sku: '', slug: 'samsung-galaxy-a17-5g-6gb-128gb', stock_available: true, product_price: 40099, product_specialPrice: 38799, rating: '5', rating_count: '4', product_img: 'https://cdn.pickaboo.com/a17.jpg', coming_soon: false })},${product({ id: '9', product_name: 'Galaxy S27', slug: 's27', stock_available: true, product_price: 150000, product_specialPrice: null, rating: null, rating_count: '0', coming_soon: true })}]"])`
+  const [a17, s27] = parsePickaboo(html)
+  assert.equal(a17.name, 'Samsung Galaxy A17 5G 6GB/128GB')
+  assert.equal(a17.url, 'https://www.pickaboo.com/product-detail/samsung-galaxy-a17-5g-6gb-128gb')
+  assert.deepEqual([a17.price, a17.originalPrice, a17.rating, a17.reviews, a17.inStock], [38799, 40099, 5, 4, true])
+  assert.deepEqual([s27.price, s27.originalPrice, s27.inStock, s27.rating], [150000, null, false, null])
+})
+
+test('three shops a search: electronics may be any three, everything else is Daraz, Cartup and Othoba', () => {
+  const intent = (searchQuery: string, productType: string | null = null) => ({ searchQuery, productType, brand: null })
+  for (const q of ['Samsung Galaxy A17', 'gaming mouse', 'Logitech K120', 'earbuds under 2000', 'power bank']) assert.equal(segmentOf(intent(q)), 'electronics', q)
+  for (const q of ['bench', 'chinigura rice', 'school bag', 'Dettol soap', 'rice cooker', 'fresh apple 1kg', 'light switch']) assert.equal(segmentOf(intent(q)), 'general', q)
+  assert.deepEqual(shopsFor('general', ['startech', 'pickaboo', 'daraz']), ['daraz', 'cartup', 'othoba'])
+  assert.deepEqual(shopsFor('electronics', undefined), ['daraz', 'startech', 'pickaboo'])
+  assert.deepEqual(shopsFor('electronics', ['pickaboo', 'cartup', 'startech']), ['cartup', 'startech', 'pickaboo'])
+  assert.deepEqual(shopsFor('electronics', ['daraz', 'cartup']), ['daraz', 'startech', 'pickaboo']) // not three: the default
+  assert.deepEqual(shopsFor('electronics', ['daraz', 'evil', 'cartup', 'cartup']), ['daraz', 'startech', 'pickaboo'])
+})

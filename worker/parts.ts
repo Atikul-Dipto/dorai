@@ -16,6 +16,8 @@ import * as cartup from './cartup.ts'
 import * as daraz from './daraz.ts'
 import { sha256 } from './devices.ts'
 import * as othoba from './othoba.ts'
+import * as pickaboo from './pickaboo.ts'
+import * as startech from './startech.ts'
 import * as store from './store.ts'
 import { type ItemRef, type Site, STORES } from './stores.ts'
 import type { Env, Listing } from './types.ts'
@@ -36,6 +38,8 @@ const PARTS = {
   cartupProduct: (_env: Env, slug: string) => cartup.fetchProduct(slug),
   othobaLookup: (env: Env, title: string): Promise<cartup.CartupLookup> => othoba.lookup(env.PP_DB, title, (slug) => callPart(env, 'othobaProduct', slug)),
   othobaProduct: (_env: Env, slug: string) => othoba.fetchProduct(slug),
+  startechSearch: (_env: Env, query: string) => startech.search(query),
+  pickabooSearch: (_env: Env, query: string) => pickaboo.search(query),
   storeCurrent: (env: Env, site: Site, item: ItemRef) => STORES[site].current(item, env),
   remember: async (env: Env, listings: Listing[], now: string) => {
     if (env.PP_DB) await store.recordListings(env.PP_DB, listings, now)

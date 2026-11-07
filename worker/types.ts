@@ -19,7 +19,7 @@ export interface Intent {
 }
 
 export interface Listing {
-  site: 'daraz' | 'cartup' | 'othoba'
+  site: 'daraz' | 'cartup' | 'othoba' | 'startech' | 'pickaboo'
   itemId: string
   name: string
   url: string
@@ -35,6 +35,7 @@ export interface Listing {
   inStock: boolean
   location: string
   officialStore: boolean // Daraz Mall ("lazMall" badge)
+  storeRun?: boolean // sold by the shop itself (Star Tech, Pickaboo), not a marketplace seller
   sellerPositive?: number | null // Cartup: the seller's "% positive seller rating" shown on its product page
   alsoNamed?: string | null // Cartup: the name its search and page title still show after a seller renames the listing
   badges: string[] // raw Daraz icon bizTypes, e.g. FreeshippingAndVoucherMax

@@ -1,6 +1,7 @@
 // The shopping agent runs as a Cloudflare Pages Function on the same site
 // (functions/api/pp/, code in ../worker/), so calls carry the session cookie.
 // VITE_AGENT_API points development somewhere else.
+import { loadShops } from './stores.js'
 import { visitorId } from './visitor.js'
 
 export const AGENT_API = import.meta.env.VITE_AGENT_API ?? '/api/pp'
@@ -16,7 +17,7 @@ export const askAgent = ({ name, details }, signal) =>
   fetch(`${AGENT_API}/ask`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name, details, visitor: visitorId() ?? undefined }),
+    body: JSON.stringify({ name, details, visitor: visitorId() ?? undefined, shops: loadShops() ?? undefined }),
     signal,
   }).then(getJson)
 

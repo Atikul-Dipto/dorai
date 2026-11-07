@@ -33,6 +33,7 @@ import { buildIntent, coreQuery, describeQuery, parseIntent } from './intent.ts'
 import { matchRows, relations, type Row, sameProduct, samePicks, sharedPick } from './matching.ts'
 import { callPart } from './parts.ts'
 import { mainModel, rank } from './ranking.ts'
+import { type Segment, segmentOf, shopsFor, SITE_LABEL, type Site } from './segments.ts'
 import * as store from './store.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
 
@@ -55,6 +56,8 @@ export interface Answer {
   query: string
   intent: Intent
   stores: StoreAnswer[]
+  segment: Segment // electronics can be compared on any three shops
+  shops: Site[] // the three shown, in that order
   hotDeal: HotDeal | null // the lowest price of the stores' picks, when there's a true claim to make
   summary: string
   checkedAt: string // when these prices were read from the stores (all live, in this answer)
@@ -83,6 +86,7 @@ export interface AskInput {
   name?: string // a product name (or a kind of item), searched exactly as typed
   details?: string // what they need: features, budget — the only text the AI reads
   query?: string // one-box clients: a name or a description, worked out by the agent
+  shops?: unknown // for electronics: the three shops the shopper chose (segments.ts)
 }
 
 export async function run(input: AskInput, env: Env, now = new Date()): Promise<Answer> {
@@ -125,8 +129,17 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   // Each store read is a request of its own (parts.ts). A store that fails costs its own results, not the answer.
   const darazSearch = (q: string, opts: Parameters<typeof daraz.search>[1] = {}) => callPart(env, 'darazSearch', q, opts)
   const notRead: cartup.CartupLookup = { status: 'error', listings: [], indexedAt: null }
-  const lookOnCartup = (title: string) => callPart(env, 'cartupLookup', title).catch(() => notRead)
-  const lookOnOthoba = (title: string) => callPart(env, 'othobaLookup', title).catch(() => notRead)
+  // Three shops a search. A shop that isn't shown isn't asked (Daraz always is: it leads the ranking).
+  const segment = segmentOf(intent)
+  const shops = shopsFor(segment, input.shops)
+  const shown = (site: Site) => shops.includes(site)
+  const notAsked: cartup.CartupLookup = { status: 'not_found', listings: [], indexedAt: null }
+  const lookOnCartup = (title: string) => (shown('cartup') ? callPart(env, 'cartupLookup', title).catch(() => notRead) : Promise.resolve(notAsked))
+  const lookOnOthoba = (title: string) => (shown('othoba') ? callPart(env, 'othobaLookup', title).catch(() => notRead) : Promise.resolve(notAsked))
+  const retailers = (['startech', 'pickaboo'] as const).filter(shown)
+  const retailerSearch = Object.fromEntries(
+    retailers.map((site) => [site, callPart(env, site === 'startech' ? 'startechSearch' : 'pickabooSearch', intent.searchQuery).catch(() => null)]),
+  ) as Partial<Record<'startech' | 'pickaboo', Promise<Listing[] | null>>>
   const optional = (q: string | null, opts: Parameters<typeof daraz.search>[1] = {}) => (q ? darazSearch(q, opts).catch(() => null) : Promise.resolve(null))
 
   // Cartup runs alongside: what was typed through its name index, and the
@@ -138,7 +151,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   const othobaLookup = lookOnOthoba(intent.searchQuery)
   // DorAI's own catalogue, alongside the stores: what it already knows the named product is, on every store.
   const catalogFind: Promise<CatalogProduct[]> = named && db ? findProducts(db, intent.searchQuery).catch(() => []) : Promise.resolve([])
-  const cartupBrowse = kinds.length ? callPart(env, 'cartupBrowse', kinds).catch(() => null) : Promise.resolve(null)
+  const cartupBrowse = kinds.length && shown('cartup') ? callPart(env, 'cartupBrowse', kinds).catch(() => null) : Promise.resolve(null)
   // Daraz sometimes answers with a bot check instead of results; Cartup still answers then.
   let darazDown = false
   const [first, coreHits, alt, nearHits, refinedHits] = await Promise.all([
@@ -242,15 +255,15 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   const known = (await catalogFind)[0] ?? null
   const confirmed: string[] = []
   if (known) {
-    const sameOn: Record<Listing['site'], Listing[]> = { daraz: ranked, cartup: cartupSame, othoba: othobaSame }
-    const poolOf: Record<Listing['site'], Listing[]> = { daraz: darazAll, cartup: cartupPool, othoba: othobaPool }
+    const sameOn: Record<string, Listing[]> = { daraz: ranked, cartup: cartupSame, othoba: othobaSame }
+    const poolOf: Record<string, Listing[]> = { daraz: darazAll, cartup: cartupPool, othoba: othobaPool }
     const vouch = (site: Listing['site'], l: Listing) => {
       if (!sameOn[site].some((s) => s.itemId === l.itemId)) sameOn[site].push(l)
       if (!poolOf[site].some((s) => s.itemId === l.itemId)) poolOf[site].push(l)
       confirmed.push(l.itemId)
     }
     const rereads: Promise<void>[] = []
-    for (const site of ['daraz', 'cartup', 'othoba'] as const) {
+    for (const site of (['daraz', 'cartup', 'othoba'] as const).filter(shown)) {
       const offers = known.offers.filter((o) => o.site === site)
       for (const o of offers) {
         const live = poolOf[site].find((l) => l.itemId === o.itemId)
@@ -318,7 +331,32 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     ? matchRows({ intent, title: intent.searchQuery, ref: othobaSame[0] ?? ranked[0] ?? null, same: othobaSame, pool: othobaPool })
     : needRows(othobaFit, othobaPool, othobaShares || !darazFit ? null : { label: 'Daraz', listing: darazFit }, othobaRanked.filter((l) => l !== othobaFit))
 
+  // ---- Star Tech and Pickaboo: one search each, judged like Othoba ----
+  const retailerPicks = await Promise.all(
+    retailers.map(async (site) => {
+      const found = await retailerSearch[site]
+      const pool = found ?? []
+      // Star Tech lists a phone's versions as one product priced from the
+      // cheapest ("Galaxy A17 5G", ৳38,499 is the 6GB one), and its pages
+      // don't say the others' prices. When the shopper named a memory size the
+      // title doesn't state, that price can't be claimed for theirs.
+      const sizes = (t: string) => t.toLowerCase().match(/\d+\s*(?:gb|tb)/g) ?? []
+      // Such a listing can be a row below, never the pick.
+      const choosable = site === 'startech' && sizes(query).length ? pool.filter((l) => sizes(l.name).length > 0) : pool
+      const same = named ? sameProduct(choosable, intent.searchQuery, ranked[0]) : []
+      const fits = named ? [] : rank(choosable, intent, RESULT_LIMIT).ranked
+      const unsized = choosable.length < pool.length
+      const fit = fits[0] ?? null
+      const rows = named
+        ? matchRows({ intent, title: intent.searchQuery, ref: same[0] ?? ranked[0] ?? null, same, pool })
+        : needRows(fit, pool, darazFit ? { label: 'Daraz', listing: darazFit } : null, fits.filter((l) => l !== fit))
+      return { site, reached: found !== null, same, fits, fit, rows, unsized }
+    }),
+  )
+  lap('retailers')
+
   const everything = unique([
+    ...retailerPicks.flatMap((r) => [...r.same, ...r.fits, ...r.rows.map((row) => row.listing)]),
     ...ranked,
     ...cartupSame,
     ...cartupRanked,
@@ -429,8 +467,40 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     if (!fit) othobaStore.note = othobaMissing ?? `Nothing on Othoba is listed as “${intent.searchQuery}” right now.`
   }
 
+  const retailerStores: StoreAnswer[] = retailerPicks.map(({ site, reached, same, fit, rows, unsized }) => {
+    const label = SITE_LABEL[site]
+    const answer: StoreAnswer = { site, label, recommended: null, why: null, matches: [], note: null, link: null }
+    if (named) {
+      const { pick, why } = recommendHere(closestFirst(same.map(toResult), intent.searchQuery), intent)
+      answer.recommended = pick
+      answer.why = why
+      answer.matches = matchesBesides(rows, pick)
+      if (!pick) {
+        const why = !reached
+          ? `Couldn't reach ${label} just now.`
+          : unsized
+            ? `${label} lists this model without saying which memory version its price is for, so it isn't shown as yours.`
+            : `${label} doesn't list this product right now.`
+        answer.note = answer.matches.length ? `${why} Its closest matches are below.` : why
+      }
+    } else {
+      const best = fit ? toResult(fit) : null
+      answer.recommended = best && bestOffer(best, offersOf(rows))
+      answer.why = best && needWhy(answer.recommended!, intent, best, null)
+      answer.matches = matchesBesides(rows, answer.recommended)
+      if (!best)
+        answer.note = !reached
+          ? `Couldn't reach ${label} just now.`
+          : unsized
+            ? `${label} lists this model without saying which memory version its price is for, so it isn't shown as yours.`
+            : `Nothing on ${label} is listed as “${intent.searchQuery}” right now.`
+    }
+    return answer
+  })
+
   if (darazDown) darazStore.note = "Couldn't reach Daraz just now — try again in a moment."
-  const stores = [darazStore, cartupStore, othobaStore]
+  const bySite = new Map<string, StoreAnswer>([darazStore, cartupStore, othobaStore, ...retailerStores].map((s) => [s.site, s]))
+  const stores = shops.map((site) => bySite.get(site)).filter((s): s is StoreAnswer => s !== undefined)
   compareAcross(stores)
   const summary = summarize(stores)
   lap('check')
@@ -440,6 +510,8 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     query,
     intent,
     stores,
+    segment,
+    shops,
     hotDeal: hotDeal(stores, named),
     summary,
     checkedAt: nowIso,

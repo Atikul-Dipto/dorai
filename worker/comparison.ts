@@ -48,6 +48,7 @@ export function closestFirst(results: Result[], name: string): Result[] {
 /** Why a listing counts as trusted, in the words the store itself uses. */
 export function standing(l: Listing): string {
   if (l.officialStore) return 'Daraz Mall'
+  if (l.storeRun) return `sold by ${l.seller} itself`
   if ((l.rating ?? 0) >= 4 && l.reviews >= 5) return `★ ${l.rating?.toFixed(1)} from ${l.reviews} reviews`
   if (l.sellerPositive) return `seller rated ${l.sellerPositive}% positive`
   return 'no ratings yet'
@@ -90,6 +91,7 @@ export function recommendHere(same: Result[], intent: Intent): { pick: Result | 
 /** What a listing actually has to go on, whether or not it clears the trust bar ("★ 5.0 from 2 reviews" is not "no ratings"). */
 export function evidence(l: Listing): string {
   if (l.officialStore) return 'Daraz Mall'
+  if (l.storeRun) return `sold by ${l.seller} itself`
   if (l.rating && l.reviews) return `★ ${l.rating.toFixed(1)} from ${l.reviews} review${l.reviews > 1 ? 's' : ''}`
   if (l.sellerPositive) return `seller rated ${l.sellerPositive}% positive`
   return 'no ratings yet'

@@ -27,16 +27,17 @@ const SEARCH_CACHE_SECONDS = 15 * 60
 
 const clean = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '')
 
-function readInput(raw: { name?: unknown; details?: unknown; query?: unknown }): AskInput | string {
+function readInput(raw: { name?: unknown; details?: unknown; query?: unknown; shops?: unknown }): AskInput | string {
+  const shops = Array.isArray(raw.shops) ? raw.shops.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined
   const name = clean(raw.name)
   const details = clean(raw.details)
   const query = clean(raw.query)
   if (name.length > 200 || details.length > 300 || query.length > 200) return 'That is longer than the agent reads — keep it under 200 characters.'
-  if (name || details) return name.length + details.length >= 2 ? { name, details } : 'Ask for a product in at least 2 characters.'
-  return query.length >= 2 ? { query } : 'Type a product name, or what you need.'
+  if (name || details) return name.length + details.length >= 2 ? { name, details, shops } : 'Ask for a product in at least 2 characters.'
+  return query.length >= 2 ? { query, shops } : 'Type a product name, or what you need.'
 }
 
-async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; details?: unknown; query?: unknown; visitor?: unknown }): Promise<Response> {
+async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; details?: unknown; query?: unknown; visitor?: unknown; shops?: unknown }): Promise<Response> {
   const input = readInput(raw)
   if (typeof input === 'string') return json(request, { error: input }, 400)
   const logged = input.query ?? [input.name, input.details].filter(Boolean).join(' — ')
@@ -47,7 +48,7 @@ async function answer({ request, env, waitUntil }: Ctx, raw: { name?: unknown; d
   try {
     // The same search within 15 minutes is answered from the cache; an answer
     // where a store couldn't be reached isn't kept.
-    const key = await searchKey([input.name, input.details, input.query])
+    const key = await searchKey([input.name, input.details, input.query, Array.isArray(input.shops) ? [...input.shops].sort().join(',') : ''])
     const hit = await readCache<Answer>(key)
     const result = hit ? { ...hit, cached: true } : await run(input, onThisSite(env, request))
     if (!hit && !result.stores.some((st) => st.note?.startsWith("Couldn't reach"))) waitUntil(writeCache(key, result, SEARCH_CACHE_SECONDS))
@@ -91,7 +92,7 @@ export const onRequestGet = (ctx: Ctx) => {
 }
 
 export const onRequestPost = async (ctx: Ctx) => {
-  const body = (await ctx.request.json().catch(() => null)) as { name?: unknown; details?: unknown; query?: unknown; visitor?: unknown } | null
+  const body = (await ctx.request.json().catch(() => null)) as { name?: unknown; details?: unknown; query?: unknown; visitor?: unknown; shops?: unknown } | null
   return answer(ctx, body ?? {})
 }
 

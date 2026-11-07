@@ -28,6 +28,8 @@
 .store-tag.daraz { background: var(--peach); }
 .store-tag.cartup { background: var(--gold); }
 .store-tag.othoba { background: #e3c7da; }
+.store-tag.startech { background: #ffd2bf; }
+.store-tag.pickaboo { background: #cfe3f7; }
 .eyebrow { margin: 0 0 6px; color: var(--plum); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 :lang(bn) .eyebrow { letter-spacing: 0; font-size: 12.5px; }
 .muted { color: var(--muted); }

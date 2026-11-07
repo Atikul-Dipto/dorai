@@ -265,7 +265,7 @@ export function namesAllOf(title: string, name: string): boolean {
  * by at least 5 buyers, or (Cartup) a seller rated 90%+ positive — Cartup
  * products rarely have reviews yet, but its sellers' ratings are shown.
  */
-export const trusted = (l: Listing) => l.officialStore || ((l.rating ?? 0) >= 4 && l.reviews >= 5) || (l.sellerPositive ?? 0) >= TRUSTED_SELLER
+export const trusted = (l: Listing) => l.officialStore || l.storeRun === true || ((l.rating ?? 0) >= 4 && l.reviews >= 5) || (l.sellerPositive ?? 0) >= TRUSTED_SELLER
 
 export function parseSold(sold: string): number {
   const m = /([\d.]+)\s*([kK])?/.exec(sold ?? '')
@@ -358,7 +358,7 @@ const median = (xs: number[]) => {
 const TRUSTED_SELLER = 90
 
 function trustScore(l: Listing): number {
-  const vouched = l.officialStore || (l.sellerPositive ?? 0) >= TRUSTED_SELLER
+  const vouched = l.officialStore || l.storeRun === true || (l.sellerPositive ?? 0) >= TRUSTED_SELLER
   return bayesianRating(l.rating, l.reviews) / 5 + Math.min(Math.log10(parseSold(l.sold) + 1) / 4, 1) * 0.5 + (vouched ? 0.3 : 0)
 }
 
@@ -385,7 +385,7 @@ function scoreForNeed(candidates: Listing[], intent: Intent, kind?: string): Lis
     // Overseas listings (Daraz's cross-border "Choice" stock) count for half:
     // 49 of 80 "monitor" listings under ৳30k were one overseas seller's portable
     // screens, and they took every top spot from monitors in stock here.
-    const vouched = l.officialStore || (l.sellerPositive ?? 0) >= TRUSTED_SELLER
+    const vouched = l.officialStore || l.storeRun === true || (l.sellerPositive ?? 0) >= TRUSTED_SELLER
     const evidence = (vouched ? 1 : Math.min(l.reviews / 10, 1)) * (isOverseas(l) ? 0.5 : 1)
     // Unrated listings start below the usual prior, for the same reason; and
     // shipping from abroad (slower, harder to return) costs a little more.

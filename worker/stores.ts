@@ -12,6 +12,8 @@ import { readProductUrl } from './links.ts'
 import * as daraz from './daraz.ts'
 import { coreQuery } from './intent.ts'
 import * as othoba from './othoba.ts'
+import * as pickaboo from './pickaboo.ts'
+import * as startech from './startech.ts'
 import type { Env, Listing } from './types.ts'
 
 export type Site = Listing['site']
@@ -44,7 +46,19 @@ async function darazCurrent(item: ItemRef): Promise<Listing | null> {
   return null
 }
 
+/** A retailer's listing, read again from a search for its name. */
+const byName = (search: (q: string) => Promise<Listing[]>) => async (item: ItemRef) => {
+  for (const q of [item.name, coreQuery(item.name)]) {
+    if (!q) continue
+    const hit = (await search(q)).find((l) => l.itemId === item.itemId)
+    if (hit) return hit
+  }
+  return null
+}
+
 export const STORES: Record<Site, StoreAdapter> = {
+  startech: { site: 'startech', label: 'Star Tech', find: (title) => startech.search(title), current: byName(startech.search) },
+  pickaboo: { site: 'pickaboo', label: 'Pickaboo', find: (title) => pickaboo.search(title), current: byName(pickaboo.search) },
   daraz: {
     site: 'daraz',
     label: 'Daraz',

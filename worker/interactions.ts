@@ -12,7 +12,7 @@ import type { D1Database, Listing } from './types.ts'
 
 export const KINDS = ['open', 'save', 'unsave', 'not_this'] as const
 export type Kind = (typeof KINDS)[number]
-const SITES: Listing['site'][] = ['daraz', 'cartup', 'othoba']
+const SITES: Listing['site'][] = ['daraz', 'cartup', 'othoba', 'startech', 'pickaboo']
 const RELATIONS = new Set<string>(['same', 'variant', 'close', 'fits'] satisfies RowRelation[])
 export const MAX_EVENTS = 10
 

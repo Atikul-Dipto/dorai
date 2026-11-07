@@ -5,6 +5,11 @@ has the detail.
 
 ## 2026-11-07
 
+- **Star Tech and Pickaboo**, two electronics retailers, join as shops. A search
+  compares three shops: Daraz, Cartup and Othoba for most things; for
+  electronics, Daraz, Star Tech and Pickaboo unless the shopper picks another
+  three of the five. Their own stock counts as a trusted seller ("Sold by Star
+  Tech"). Saved products from them are checked like any other.
 - **Links no longer dead-end.** A Daraz link its search doesn't list is read from
   its own page. A listing that's gone (Cartup's "temporarily unavailable", a
   Daraz 404) now says so, and from the site its name is searched on all three

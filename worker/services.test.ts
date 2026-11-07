@@ -496,7 +496,7 @@ test('a store whose read fails costs its own results, not the answer', async () 
     return Response.json({ result: { listings: [listing('111', 'daraz', item.name, 1150)], categories: [], url: 'https://www.daraz.com.bd/catalog/?q=awei' } })
   }) as typeof fetch
   try {
-    const answer = await run({ name: 'Awei T50', details: '' }, env)
+    const answer = await run({ name: 'Awei T50', details: '', shops: ['daraz', 'cartup', 'othoba'] }, env)
     assert.equal(answer.stores.length, 3)
     assert.equal(answer.stores.find((s) => s.site === 'daraz')?.recommended?.listing.itemId, '111')
     assert.equal(answer.stores.find((s) => s.site === 'cartup')?.recommended, null)
@@ -671,7 +671,7 @@ test('search finds relevant products in the catalogue, and reads the offers live
     return new Response('', { status: 404 })
   }) as typeof fetch
   try {
-    const answer = await run({ name: 'Awei T50' }, { PP_DB: db })
+    const answer = await run({ name: 'Awei T50', shops: ['daraz', 'cartup', 'othoba'] }, { PP_DB: db })
     const othoba = answer.stores.find((s) => s.site === 'othoba')!
     assert.equal(othoba.recommended?.listing.itemId, 'othoba:826386')
     assert.equal(othoba.recommended?.listing.price, 1199) // read live, not the ৳1,250 remembered
@@ -728,6 +728,36 @@ test('scheduled jobs: a watched product is checked, its drop recorded and pushed
     assert.deepEqual(await runJobs(env, new Date('2026-11-03T00:20:00Z')), { checked: 0, alerts: 0, failed: 0, matched: 0 })
     // Seven hours later it's checked again; the same price is not news.
     assert.deepEqual(await runJobs(env, new Date('2026-11-03T07:20:00Z')), { checked: 1, alerts: 0, failed: 0, matched: 0 })
+  } finally {
+    globalThis.fetch = real
+  }
+})
+
+test("Star Tech's one listing for every memory version isn't claimed as the version the shopper named", async () => {
+  const { db } = freshDb()
+  const env = { PP_DB: db, SELF: 'https://dorai.test' }
+  const a17 = { ...listing('startech:samsung-galaxy-a17-5g', 'startech', 'Samsung Galaxy A17 5G', 38499), url: 'https://www.startech.com.bd/samsung-galaxy-a17-5g', seller: 'Star Tech', storeRun: true }
+  const sized = { ...listing('pickaboo:113244', 'pickaboo', 'Samsung Galaxy A17 5G 8GB/128GB', 42199), seller: 'Pickaboo', storeRun: true }
+  const real = globalThis.fetch
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const { name } = JSON.parse(String(init?.body)) as { name: string }
+    if (name === 'startechSearch') return Response.json({ result: [a17] })
+    if (name === 'pickabooSearch') return Response.json({ result: [sized] })
+    if (name === 'darazSearch') return Response.json({ result: { listings: [], categories: [], url: 'https://www.daraz.com.bd/catalog/?q=a17' } })
+    return Response.json({ result: null })
+  }) as typeof fetch
+  try {
+    for (const name of ['Galaxy A17 5G 8GB/128GB Samsung', 'Samsung Galaxy A17 5G 8GB 128GB']) {
+      const answer = await run({ name, details: '' }, env)
+      assert.deepEqual(answer.shops, ['daraz', 'startech', 'pickaboo'])
+      const startech = answer.stores.find((s) => s.site === 'startech')!
+      assert.equal(startech.recommended, null, name)
+      assert.match(startech.note ?? '', /memory version/)
+      assert.equal(answer.stores.find((s) => s.site === 'pickaboo')?.recommended?.listing.itemId, 'pickaboo:113244')
+    }
+    // Named without a memory size, the listing is that phone.
+    const plain = await run({ name: 'Samsung Galaxy A17 5G', details: '' }, env)
+    assert.equal(plain.stores.find((s) => s.site === 'startech')?.recommended?.listing.itemId, 'startech:samsung-galaxy-a17-5g')
   } finally {
     globalThis.fetch = real
   }

@@ -43,6 +43,13 @@
 .store-section.daraz { border-top-color: var(--peach); }
 .store-section.cartup { border-top-color: var(--gold); }
 .store-section.othoba { border-top-color: #c99bb9; }
+.store-section.startech { border-top-color: #f0936c; }
+.store-section.pickaboo { border-top-color: #8fb8e0; }
+.shop-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 14px; padding: 12px 14px; background: var(--tint); border-radius: var(--radius); }
+.shop-picker-title { margin-right: 4px; color: var(--ink); font-size: 14px; font-weight: 700; }
+.shop-chip[aria-pressed='true'] { color: #fff; background: var(--plum); border-color: var(--plum); }
+.shop-chip:disabled { opacity: .45; cursor: not-allowed; }
+.shop-picker-hint { color: var(--muted); font-size: 13px; }
 .store-section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; color: var(--muted); font-size: 12.5px; }
 .store-section-head a { margin-left: auto; color: var(--plum); font-weight: 600; }
 .store-empty { margin: 0; padding: 14px; color: var(--muted); background: var(--tint); border-radius: 10px; font-size: 13.5px; }

@@ -5,10 +5,9 @@ import AccountDialog from './agent/AccountDialog.jsx'
 import AskAgent from './agent/AskAgent.jsx'
 import GetDorAI from './agent/GetDorAI.jsx'
 import SearchHistory from './agent/SearchHistory.jsx'
-import VoucherBoard from './agent/VoucherBoard.jsx'
 import Watchlist from './agent/Watchlist.jsx'
 import { AccountContext, useAccountState } from './agent/account.js'
-import { getStats, getVouchers } from './agent/api.js'
+import { getStats } from './agent/api.js'
 import { useWatchlistState, WatchlistContext } from './agent/watchlist.js'
 import { LangContext, loadLang, POPULAR, saveLang, STRINGS } from './i18n.js'
 
@@ -24,14 +23,13 @@ const ICONS = [
 
 /**
  * DorAI's page: the search (hero) with its answer, then popular searches,
- * how it works, why DorAI, the app and extension, and the public vouchers.
+ * how it works, why DorAI, and the app and extension.
  * Bangla first, with an English switch; the watchlist lives in this browser.
  * (The older scraped-prices dashboard was removed 2026-10-29; the scrapers
  * and their backend still live in scraper/ and backend/.)
  */
 export default function App() {
   const [lang, setLang] = useState(loadLang)
-  const [vouchers, setVouchers] = useState({ status: 'loading', data: null })
   const [agentStats, setAgentStats] = useState(null)
   const [watchOpen, setWatchOpen] = useState(false)
   const [request, setRequest] = useState(null)
@@ -45,11 +43,8 @@ export default function App() {
     saveLang(lang)
   }, [lang])
 
-  // The agent's voucher list and its running record, from the Cloudflare function it runs on.
+  // The agent's running record, from the Cloudflare function it runs on.
   useEffect(() => {
-    getVouchers()
-      .then((data) => setVouchers({ status: 'ready', data }))
-      .catch(() => setVouchers({ status: 'error', data: null }))
     getStats()
       .then(setAgentStats)
       .catch(() => setAgentStats(null))
@@ -138,7 +133,6 @@ export default function App() {
 
             <GetDorAI />
 
-            <VoucherBoard data={vouchers.data} status={vouchers.status} />
           </main>
 
           <footer className="footer">

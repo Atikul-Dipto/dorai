@@ -70,7 +70,7 @@
 .also-named { margin: 0 0 6px; }
 .seller { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; color: var(--muted); font-size: 12.5px; }
 
-.price-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+.price-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
 .price-grid > div { min-width: 0; padding: 10px 12px; border-right: 1px solid var(--line); }
 .price-grid > div:last-child { border-right: 0; }
 .price-grid span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
@@ -79,7 +79,6 @@
 .price-grid .price-main strong { color: var(--purple); font-size: 22px; }
 .price-grid small { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
 .price-grid small del { color: var(--faint); }
-.price-grid .with-voucher strong { color: var(--good); }
 .memory small.down { color: var(--good); font-weight: 700; }
 .memory small.up { color: #a5482f; }
 

@@ -49,9 +49,7 @@ const MAX_FOLLOW_UPS = 3
 const MAX_DARAZ_FOLLOW_UPS = 1
 
 export const CAVEATS = [
-  'Vouchers are checked against their published terms (dates, minimum spend, cap, badges). Daraz makes the final call at checkout.',
-  'Store vouchers and personal vouchers (new-user, Coins) only show to a logged-in Daraz account, so they are not included.',
-  'Daraz allows one platform voucher per order, so the best single voucher is shown, not a sum.',
+  'Prices are the shops\' own listed prices, read live. Vouchers, coupons and payment offers aren\'t applied: the shop shows those at checkout.',
   "Cartup prices and stock are read live from its product pages. Reviews and seller ratings are the ones those pages show; Cartup's hidden search-engine ratings (every product “4.6–5.0 from ~1,300 ratings”) aren't real reviews and are ignored.",
 ]
 
@@ -375,7 +373,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   let database: Answer['database'] = !db ? 'unavailable' : everything.length ? 'ok' : 'not needed'
   if (db) {
     try {
-      ;[history, { vouchers, harvestedAt }] = await Promise.all([store.lookupHistory(db, everything), store.loadVouchers(db, today)])
+      history = await store.lookupHistory(db, everything)
       if (everything.length) await callPart(env, 'remember', everything, nowIso)
     } catch {
       database = 'unavailable' // the answer must never sink with the database

@@ -25,7 +25,6 @@ const CONDITION_LABELS: Record<string, string> = {
 const MALL_LABELS = ['mall', 'lazmall', 'daraz mall']
 
 const BADGE_HINTS: Record<string, string> = {
-  FreeshippingAndVoucherMax: "Seller is in Daraz's voucher programme — log in to Daraz to see store vouchers on this item.",
   coinsAndFreeshipping: 'Daraz Coins can be used, and shipping is free.',
   coins: 'Daraz Coins can be used on this item.',
   Freeshipping: 'Free shipping.',

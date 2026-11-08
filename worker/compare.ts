@@ -159,7 +159,7 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   let vouchers: Voucher[] = []
   if (db) {
     try {
-      ;[history, { vouchers }] = await Promise.all([store.lookupHistory(db, everything), store.loadVouchers(db, nowIso.slice(0, 10))])
+      history = await store.lookupHistory(db, everything)
       await callPart(env, 'remember', everything, nowIso)
     } catch {
       // the answer never sinks with the database

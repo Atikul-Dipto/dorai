@@ -3,6 +3,15 @@
 What changed for shoppers and for the system, newest first. Commit history
 has the detail.
 
+## 2026-11-09
+
+- **No more vouchers.** The public Daraz voucher list, the "with voucher" price
+  and the voucher checks are gone from the page, and the search no longer takes
+  vouchers off any price: every price shown is the shop's own. Vouchers only
+  ever covered Daraz, and only the public ones.
+- **Copy and cards fit any shop:** the price box shows the price and the price
+  last time, and the page names all five shops.
+
 ## 2026-11-07
 
 - **A kind of item compares the same product.** Each shop's own best fit could

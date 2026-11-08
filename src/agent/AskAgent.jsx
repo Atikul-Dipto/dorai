@@ -28,7 +28,7 @@ const STEPS = [
   { key: 'understand', short: 'read', typicalMs: 1500 },
   { key: 'search', short: 'search', typicalMs: 600 },
   { key: 'remember', short: 'memory', typicalMs: 250 },
-  { key: 'check', short: 'vouchers', typicalMs: 50 },
+  { key: 'check', short: 'compare', typicalMs: 50 },
 ]
 
 const locale = (lang) => (lang === 'bn' ? 'bn-BD' : 'en-GB')
@@ -163,37 +163,6 @@ function PriceMemory({ listing, history }) {
   )
 }
 
-const STATUS_LABEL = { applies: 'Applies', conditional: 'Applies if…', not_applicable: "Doesn't apply" }
-
-function VoucherChecks({ checks }) {
-  const { t } = useLang()
-  if (!checks.length) return null
-  return (
-    <div className="voucher-checks">
-      <h4>{t.vouchersChecked}</h4>
-      <ul>
-        {checks.map((c, i) => (
-          <li key={i} className={c.status}>
-            <div>
-              <b>{c.voucher.title}</b>
-              <span>
-                {c.voucher.amount != null ? `${money(c.voucher.amount)} off` : `${c.voucher.percent}% off`}
-                {c.voucher.minSpend != null && ` · min ${money(c.voucher.minSpend)}`}
-              </span>
-              <em>{STATUS_LABEL[c.status]}</em>
-            </div>
-            <ul>
-              {[...c.reasons, ...c.conditions].map((r) => (
-                <li key={r}>{r}</li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 function Seller({ listing }) {
   const { t } = useLang()
   return (
@@ -290,7 +259,6 @@ function HotDealBanner({ deal, query }) {
       </div>
       <div className="hot-deal-buy">
         <strong>{money(deal.price)}</strong>
-        {deal.voucher && <small>{t.withVoucher}</small>}
         <a className="btn btn-hot" href={deal.url} target="_blank" rel="noreferrer" onClick={() => track('open', { query, listing: deal })}>
           {t.open(deal.label)}
         </a>
@@ -302,8 +270,8 @@ function HotDealBanner({ deal, query }) {
 /** One store's recommended option: its own pick, never compared away. */
 function StorePick({ store, query, hot }) {
   const { t } = useLang()
-  const { recommended: result, why, label, site } = store
-  const { listing, history, bestVoucher, finalPrice } = result
+  const { recommended: result, why, label } = store
+  const { listing, history } = result
   const [imgOk, setImgOk] = useState(true)
   return (
     <article className="store-pick">
@@ -340,24 +308,8 @@ function StorePick({ store, query, hot }) {
             <small>{t.noDiscount}</small>
           )}
         </div>
-        <div className={bestVoucher ? 'with-voucher' : ''}>
-          <span>{t.withVoucher}</span>
-          <strong>{bestVoucher ? money(finalPrice) : '—'}</strong>
-          <small>{bestVoucher ? `${bestVoucher.voucher.title} −${money(bestVoucher.saving)}` : site === 'daraz' ? t.noVoucher : t.notTracked}</small>
-        </div>
         <PriceMemory listing={listing} history={history} />
       </div>
-
-      {bestVoucher?.conditions.length > 0 && (
-        <div className="conditions">
-          <span>{t.onlyIf}</span>
-          <ul>
-            {bestVoucher.conditions.map((c) => (
-              <li key={c}>{c}</li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {why && <p className="why">{why}</p>}
       {result.hints.length > 0 && (
@@ -408,7 +360,6 @@ function StoreMatches({ store, named, query }) {
             </a>
             <div className="other-price">
               <strong>{money(r.listing.price)}</strong>
-              {r.bestVoucher && <small>{money(r.finalPrice)} with voucher</small>}
               {r.history && r.history.lastPrice !== r.listing.price && (
                 <small className={r.listing.price < r.history.lastPrice ? 'down' : 'up'}>was {money(r.history.lastPrice)}</small>
               )}
@@ -443,7 +394,6 @@ function StoreSection({ store, named, query, hot }) {
       {store.recommended ? <StorePick store={store} query={query} hot={hot} /> : <p className="store-empty">{store.note}</p>}
       {store.recommended && store.note && <p className="store-empty">{store.note}</p>}
       <StoreMatches store={store} named={named} query={query} />
-      {store.site === 'daraz' && store.recommended && <VoucherChecks checks={store.recommended.vouchers} />}
     </section>
   )
 }
@@ -812,7 +762,12 @@ export default function AskAgent({ stats, request }) {
 
         <p className="hero-stores">
           <span className="live-dot" aria-hidden="true" />
-          {t.liveFrom}: <span className="store-tag daraz">Daraz</span> <span className="store-tag cartup">Cartup</span> <span className="store-tag othoba">Othoba</span>
+          {t.liveFrom}:{' '}
+          {ALL_SHOPS.map((site) => (
+            <span key={site} className={`store-tag ${site}`}>
+              {STORE_LABEL[site]}
+            </span>
+          ))}
           {stats?.totals?.asks > 0 && <em>{t.record(stats.totals.asks.toLocaleString(locale(lang)), seconds(stats.totals.avg_ms ?? 0))}</em>}
         </p>
       </section>

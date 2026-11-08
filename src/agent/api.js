@@ -30,7 +30,6 @@ export const compareLink = (link, signal) =>
     signal,
   }).then(getJson)
 
-export const getVouchers = () => fetch(`${AGENT_API}/vouchers`).then(getJson)
 export const getStats = () => fetch(`${AGENT_API}/stats`).then(getJson)
 
 export const getAuth = () => fetch(`${AGENT_API}/auth`).then(getJson)

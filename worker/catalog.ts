@@ -44,6 +44,7 @@ export interface Specs {
   dims: string[] // "3x3": a cube's, a frame's
   times: string | null // "3x": Samyang's 2x and 3x Spicy, a remedy's potency
   volume: string | null // "4" in "Vol. 4": one book of a series
+  capacity: string[] // a battery's "20000mah": a 10000mAh power bank is another product
 }
 
 export interface Parsed {
@@ -126,6 +127,8 @@ export function normalizeTitle(name: string): string {
 // ---- 3. Extract specifications ----
 
 const TIMES = /^\d+x$/
+const CAPACITY_RE = /\b(\d{1,3}(?:,\d{3})+|\d{3,6})\s*mah\b/gi
+const WATTAGE_RE = /\b\d+(?:\.\d+)?\s*(?:w|watt|watts)\b/gi
 const VOLUME_RE = /\b(?:vol(?:ume)?|part|book|season|chapter|issue)\s*[.:#-]?\s*(\d+)\b/i
 
 export function extractSpecs(name: string, model: string | null): Specs {
@@ -142,6 +145,7 @@ export function extractSpecs(name: string, model: string | null): Specs {
     dims: [...new Set(ts.filter((t) => DIMENSION.test(t)))].sort(),
     times: ts.find((t) => TIMES.test(t)) ?? null,
     volume: VOLUME_RE.exec(plain(name))?.[1].replace(/^0+(?=\d)/, '') ?? null,
+    capacity: [...new Set([...plain(name).matchAll(CAPACITY_RE)].map((m) => `${Number(m[1].replace(/,/g, ''))}mah`))].sort(),
   }
 }
 
@@ -150,7 +154,8 @@ export function extractSpecs(name: string, model: string | null): Specs {
 /** Brand + model + specs; without a model code, brand + identity words + specs. Equal fingerprints describe one product. */
 export function fingerprint(p: Omit<Parsed, 'fingerprint'>): string {
   const s = p.specs
-  const specs = [s.size.join('+'), s.storage ?? '', s.variant, s.network ?? '', s.bundle ? 'bundle' : '', s.dims.join('+'), s.times ?? '', s.volume ?? ''].join('|')
+  // A capacity only adds to the fingerprints of listings that state one, so the others stay as they were.
+  const specs = [s.size.join('+'), s.storage ?? '', s.variant, s.network ?? '', s.bundle ? 'bundle' : '', s.dims.join('+'), s.times ?? '', s.volume ?? '', ...(s.capacity?.length ? [s.capacity.join('+')] : [])].join('|')
   return p.model ? `m|${p.brand ?? ''}|${p.model}|${specs}` : `w|${p.brand ?? ''}|${[...new Set(p.words)].sort().join('+')}|${specs}`
 }
 
@@ -163,7 +168,10 @@ export function parseListing(name: string, storeBrand: string | null, image: str
   const title = normalizeTitle(name)
   const specs = extractSpecs(name, model)
   const skip = new Set([...(brand?.split(' ') ?? []), ...specs.size, ...specs.dims, ...(specs.times ? [specs.times] : []), ...(specs.network ? [specs.network] : []), ...COLOURS])
-  const words = title.split(' ').filter((t) => t && !skip.has(t) && !(model && model.includes(t) && /\d/.test(t)) && t !== model)
+  // A battery's capacity is a spec of its own, and a wattage is spelled every
+  // way ("22.5 Watt", "22.5W"): as words they'd only make one product look like two.
+  const powerless = normalizeTitle(name.replace(CAPACITY_RE, ' ').replace(WATTAGE_RE, ' ')).split(' ')
+  const words = powerless.filter((t) => t && !skip.has(t) && !(model && model.includes(t) && /\d/.test(t)) && t !== model)
   const parsed = { brand, brandFrom, model, title, words, specs, photo: photoFile(image) }
   return { ...parsed, fingerprint: fingerprint(parsed) }
 }
@@ -210,6 +218,8 @@ export function confidence(a: Parsed, b: Parsed, samePhoto = false, typed = fals
   if (x.dims.length && y.dims.length && x.dims.join('+') !== y.dims.join('+')) return { score: 0, reasons: [`different dimensions (${x.dims.join(', ')} / ${y.dims.join(', ')})`] }
   if (x.times && y.times && x.times !== y.times) return { score: 0, reasons: [`different strength (${x.times} / ${y.times})`] }
   if (x.volume && y.volume && x.volume !== y.volume) return { score: 0, reasons: [`different volume (${x.volume} / ${y.volume})`] }
+  if (x.capacity?.length && y.capacity?.length && x.capacity.join('+') !== y.capacity.join('+'))
+    return { score: 0, reasons: [`different capacity (${x.capacity.join(', ')} / ${y.capacity.join(', ')})`] }
 
   let score = 0
   const add = (points: number, reason: string) => {
@@ -279,8 +289,8 @@ async function createProduct(db: D1Database, l: StoredListing, p: Parsed, now: s
 
 /**
  * Where the model's score decides. Measured out of fold on 1,049 labelled
- * pairs (scripts/train-matcher.ts): links from `sameFrom` up were 95.5% right,
- * and 96% of pairs under `differentBelow` were different products.
+ * pairs (scripts/train-matcher.ts): links from `sameFrom` up were 95.9% right,
+ * and 93% of pairs under `differentBelow` were different products.
  */
 export const MODEL = { sameFrom: WEIGHTS.autoThreshold, differentBelow: 0.2 }
 

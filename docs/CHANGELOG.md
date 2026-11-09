@@ -7,11 +7,13 @@ has the detail.
 
 - **A same-product model, trained here.** New listings are now matched to the
   catalogue by a small model learned from 1,049 labelled pairs, not by
-  hand-set points. Tested on pairs it never saw, 95.5% of the links it makes
+  hand-set points. Tested on pairs it never saw, 95.9% of the links it makes
   are right (the old rules: 90.4%), and it finds more of the real matches. It
   knows a scent, flavour, pack count or "inspired by" copy makes another
   product, and sends about half as many pairs to manual review. The labels are
   Claude's, from titles and prices; review decisions will refine them.
+- **Power banks:** a 10000mAh and a 20000mAh power bank are different
+  products, and "Baseus 22.5W" no longer reads as a model called "baseus22".
 - **Room for more shoppers.** A search no longer re-saves every listing it saw:
   only new, renamed or day-old ones. That cuts the database writes a search
   costs several times over, and those writes were the daily limit that would

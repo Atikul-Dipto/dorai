@@ -145,7 +145,8 @@ export function variantsOf(text: string, main?: string): string {
 
 /** The most specific model code in a title (the longest), if it has one. */
 export const mainModel = (text: string): string | undefined => modelTokens(tokens(text)).sort((a, b) => b.length - a.length)[0]
-const GLUE_STOPWORDS =new Set(['for', 'with', 'under', 'than', 'of', 'and', 'the', 'to', 'in', 'on', 'at'])
+// Units too: "20000 mAh 22.5 Watt" has no model "mah22".
+const GLUE_STOPWORDS = new Set(['for', 'with', 'under', 'than', 'of', 'and', 'the', 'to', 'in', 'on', 'at', 'mah', 'watt', 'watts', 'volt', 'hz'])
 // Brands spelled with a digit. Read as a model code, "a4tech" alone was a
 // named product, and every A4Tech listing (a gaming mouse, an office mouse, a
 // USB hub, a headset) was "the same product".
@@ -170,9 +171,10 @@ export function modelTokens(queryTokens: string[]): string[] {
       return
     }
     const prev = queryTokens[i - 1]
-    // ...unless a unit follows: "Mustard Oil - 1 Ltr" is a size, not an "oil1".
+    // ...unless a unit follows: "Mustard Oil - 1 Ltr" is a size, not an "oil1";
+    // nor a decimal's other half: "Baseus 22.5W" is a wattage, not a "baseus22".
     const next = queryTokens[i + 1] ?? ''
-    if (/^\d+$/.test(t) && prev && /^[a-z]+$/.test(prev) && !GLUE_STOPWORDS.has(prev) && !SPEC_WORDS.has(next) && !UNIT_RE.test(next)) {
+    if (/^\d+$/.test(t) && prev && /^[a-z]+$/.test(prev) && !GLUE_STOPWORDS.has(prev) && !SPEC_WORDS.has(next) && !UNIT_RE.test(next) && !/^\d{1,2}(w|v|a|ah|mah|hz)?$/.test(next)) {
       found.push(prev + t)
     }
   })

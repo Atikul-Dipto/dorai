@@ -12,6 +12,10 @@ has the detail.
   knows a scent, flavour, pack count or "inspired by" copy makes another
   product, and sends about half as many pairs to manual review. The labels are
   Claude's, from titles and prices; review decisions will refine them.
+- **The old matches, checked again.** The 5,339 pairs waiting for review and
+  the 5,467 links the old rules made are being scored by the model, 40 every
+  10 minutes (about two days): the ones it's sure of are decided, the rest
+  wait for a person. A person's decisions are never changed.
 - **Power banks:** a 10000mAh and a 20000mAh power bank are different
   products, and "Baseus 22.5W" no longer reads as a model called "baseus22".
 - **Room for more shoppers.** A search no longer re-saves every listing it saw:

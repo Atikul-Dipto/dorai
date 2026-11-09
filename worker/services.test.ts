@@ -16,7 +16,7 @@ import { admit, forGuest, GUEST_ROWS, GUEST_SEARCHES, giveBack, guestCount, hist
 import { deleteAccount, logIn, profileKey, sessionUser, setHistory } from './accounts.ts'
 import { run } from './agent.ts'
 import { parseProductPage as parseDarazPage } from './daraz.ts'
-import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, normalizeTitle, parseListing, type StoredListing } from './catalog.ts'
+import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, MODEL_SINCE, normalizeTitle, parseListing, rescoreBacklog, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
 import { readInteraction, recordInteractions, summarizeInteractions } from './interactions.ts'
 import { forgetProfile, listProfiles, patternOf, readProfile, visitorKey } from './profiles.ts'
@@ -27,7 +27,7 @@ import { dropWorthTelling, putWatches, readWatch } from './watchlist.ts'
 
 function freshDb(): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(':memory:')
-  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql', '0005_visitor_profiles.sql', '0006_accounts.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
+  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql', '0005_visitor_profiles.sql', '0006_accounts.sql', '0007_rescore_backlog.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
   // Plain objects, as D1 returns (node:sqlite's rows have no prototype).
   const plain = (row: unknown) => (row ? { ...(row as object) } : null)
   const statement = (sql: string, params: unknown[] = []): D1Statement => ({
@@ -664,6 +664,69 @@ test('a listing seen again unchanged is not written again for a day; a new name 
   await recordListings(db, [{ ...awei, price: 1050, name: 'Awei T50 Pro Wireless Earbuds' }], '2026-11-10T06:00:00.000Z')
   assert.equal(row().name, 'Awei T50 Pro Wireless Earbuds')
   assert.equal(row().match_status, null)
+})
+
+test("the model scores the old backlog: sure reviews decided, unsure links sent to review, a person's decisions untouched", async () => {
+  const { db, raw } = freshDb()
+  const before = '2026-11-08T10:00:00.000Z'
+  const now = '2026-11-10T01:00:00.000Z'
+  assert.ok(before < MODEL_SINCE && MODEL_SINCE < now)
+  const offer = (itemId: string, site: Listing['site'], name: string, price: number) => listing(itemId, site, name, price)
+  // Three products, each with the listing it was founded on.
+  await recordListings(
+    db,
+    [
+      offer('c1', 'cartup', 'Lux Body Wash Black Orchid Scent & Juniper Oil 245ml', 99),
+      offer('d2', 'daraz', 'Hoco EQ10 Plus ANC Earbuds', 1399),
+      offer('d3', 'daraz', 'Starship Full Cream Milk Powder - 1kg', 700),
+      offer('d10', 'daraz', 'Lux Body Wash Freesia Scent & Aloe Vera 245ml', 209),
+      offer('o11', 'othoba', 'Hoco EQ10 Plus ANC Earbuds - Black', 1167),
+      offer('o12', 'othoba', 'Hoco EQ10 Plus ANC Earbuds White', 1200),
+      offer('o16', 'othoba', 'Starship Instant Full Cream Milk Powder Family Pack 1kg', 700),
+      offer('c13', 'cartup', 'Starship Full Cream Milk Powder – 1 Kg', 700),
+      offer('d14', 'daraz', 'Lux Body Wash French Rose & Almond 245ml', 209),
+      offer('d15', 'daraz', 'Starship Full Cream Milk Powder Pouch Family Pack 1kg', 700),
+      offer('d17', 'daraz', 'Lux Body Wash Lily Scent 245ml', 150),
+    ],
+    before,
+  )
+  raw.exec(`
+    INSERT INTO products (id, name, created_at, updated_at) VALUES
+      (1, 'Lux Body Wash Black Orchid Scent & Juniper Oil 245ml', '${before}', '${before}'),
+      (2, 'Hoco EQ10 Plus ANC Earbuds', '${before}', '${before}'),
+      (3, 'Starship Full Cream Milk Powder - 1kg', '${before}', '${before}');
+    UPDATE listings SET match_status = 'new', product_id = 1, matched_at = '${before}' WHERE item_id = 'c1';
+    UPDATE listings SET match_status = 'new', product_id = 2, matched_at = '${before}' WHERE item_id = 'd2';
+    UPDATE listings SET match_status = 'new', product_id = 3, matched_at = '${before}' WHERE item_id = 'd3';
+    UPDATE listings SET match_status = 'review', matched_at = '${before}' WHERE item_id IN ('d10', 'o11', 'o16', 'd17');
+    UPDATE listings SET match_status = 'auto', matched_at = '${before}' WHERE item_id = 'o12';
+    UPDATE listings SET match_status = 'auto', product_id = 3, match_score = 0.8, matched_at = '${before}' WHERE item_id IN ('c13', 'd15');
+    UPDATE listings SET match_status = 'auto', product_id = 1, match_score = 0.8, matched_at = '${before}' WHERE item_id = 'd14';
+    UPDATE listings SET product_id = 2 WHERE item_id = 'o12';
+    INSERT INTO match_reviews (item_id, product_id, score, level, reasons, status, created_at) VALUES
+      ('d10', 1, 0.55, 'low', '[]', 'pending', '${before}'),
+      ('o11', 2, 0.7, 'medium', '[]', 'pending', '${before}'),
+      ('o12', 2, 0.7, 'medium', '[]', 'pending', '${before}'),
+      ('o16', 3, 0.7, 'medium', '[]', 'pending', '${before}'),
+      ('d17', 1, 0.5, 'low', '[]', 'rejected', '${before}');
+  `)
+  const status = (id: string) => ({ ...(raw.prepare('SELECT match_status AS s, product_id AS p FROM listings WHERE item_id = ?').get(id) as { s: string | null; p: number | null }) })
+  const review = (id: string) => (raw.prepare('SELECT status FROM match_reviews WHERE item_id = ? ORDER BY id DESC').get(id) as { status: string }).status
+
+  // (o12's review is stale, and its own pre-model automatic link is scored too: kept.)
+  assert.deepEqual(await rescoreBacklog(db, now, 50), { linked: 1, different: 2, review: 2, kept: 2, stale: 1 })
+  // Reviews: the same Hoco linked by the model, the other scent ruled out and matched again, the unsure one waiting with a new score.
+  assert.deepEqual([review('o11'), status('o11')], ['model_same', { s: 'auto', p: 2 }])
+  assert.deepEqual([review('d10'), status('d10')], ['model_different', { s: null, p: null }])
+  assert.deepEqual([review('o16'), status('o16').s], ['pending', 'review'])
+  assert.equal(review('o12'), 'stale')
+  // Links: the same milk powder kept, the other scent matched again, the unsure pouch sent to a person.
+  assert.deepEqual(status('c13'), { s: 'auto', p: 3 })
+  assert.deepEqual(status('d14'), { s: null, p: null })
+  assert.deepEqual([status('d15'), review('d15')], [{ s: 'review', p: null }, 'pending'])
+  // A person's decision stands, and the backlog, once done, is done.
+  assert.equal(review('d17'), 'rejected')
+  assert.deepEqual(await rescoreBacklog(db, now, 50), { linked: 0, different: 0, review: 0, kept: 0, stale: 0 })
 })
 
 test('search finds relevant products in the catalogue, and reads the offers live search missed again', async () => {

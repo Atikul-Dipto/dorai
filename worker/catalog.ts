@@ -23,7 +23,7 @@ import { cleanText } from './normalize.ts'
 import { type PairSide, sameProbability } from './pairModel.ts'
 import { WEIGHTS } from './pairWeights.ts'
 import { amountOf, holdsCode, isBundle, isNetworkGen, modelTokens, QUANTITY_RE, storageOf, tokens, variantsOf } from './ranking.ts'
-import type { D1Database, Listing } from './types.ts'
+import type { D1Database, D1Statement, Listing } from './types.ts'
 
 /** A listing as the catalogue reads it from D1 `listings`. */
 export interface StoredListing {
@@ -384,6 +384,132 @@ export async function matchNewListings(db: D1Database, now: string, limit: numbe
     .bind(limit)
     .all<StoredListing>()
   for (const l of results) done[(await matchListing(db, l, now)).outcome]++
+  return done
+}
+
+// ---- The links and reviews made before the model, scored again by it ----
+
+/** Matches made before this (the rules' points) are scored again by the model; later ones already were. */
+export const MODEL_SINCE = '2026-11-09T17:00:00.000Z'
+
+interface BacklogRow {
+  review_id: number | null
+  item_id: string
+  site: string
+  name: string
+  brand: string | null
+  image: string | null
+  match_status: string | null
+  product_id: number
+  p_name: string
+  p_brand: string | null
+  p_image: string | null
+}
+
+/**
+ * A batch of the pre-model backlog through the model: pending reviews first,
+ * then automatic links. A review the model is sure of is linked
+ * (`model_same`) or ruled out (`model_different`, and the listing is matched
+ * again); one it can't tell waits for a person, scored anew. An automatic link
+ * it isn't sure of goes to review, or is matched again when it's surely
+ * another product. A person's decisions are never touched.
+ */
+export async function rescoreBacklog(db: D1Database, now: string, limit: number): Promise<{ linked: number; different: number; review: number; kept: number; stale: number }> {
+  const done = { linked: 0, different: 0, review: 0, kept: 0, stale: 0 }
+  const product = `p.name AS p_name, p.brand AS p_brand, p.image AS p_image`
+  const reviews = (
+    await db
+      .prepare(
+        `SELECT r.id AS review_id, l.item_id, l.site, l.name, l.brand, l.image, l.match_status, r.product_id, ${product}
+           FROM match_reviews r JOIN listings l ON l.item_id = r.item_id JOIN products p ON p.id = r.product_id
+          WHERE r.status = 'pending' AND r.created_at < ? ORDER BY r.created_at LIMIT ?`,
+      )
+      .bind(MODEL_SINCE, limit)
+      .all<BacklogRow>()
+  ).results
+  const autos =
+    reviews.length < limit
+      ? (
+          await db
+            .prepare(
+              `SELECT NULL AS review_id, l.item_id, l.site, l.name, l.brand, l.image, l.match_status, l.product_id, ${product}
+                 FROM listings l JOIN products p ON p.id = l.product_id
+                WHERE l.match_status = 'auto' AND l.matched_at < ? LIMIT ?`,
+            )
+            .bind(MODEL_SINCE, limit - reviews.length)
+            .all<BacklogRow>()
+        ).results
+      : []
+  const rows = [...reviews, ...autos]
+  if (!rows.length) return done
+
+  // Every price the model weighs, in two reads for the whole batch.
+  const last = `(SELECT price FROM price_history WHERE item_id = l.item_id ORDER BY seen_at DESC LIMIT 1)`
+  const [own, founders] = await Promise.all([
+    db
+      .prepare(`SELECT l.item_id, ${last} AS price FROM listings l WHERE l.item_id IN (SELECT value FROM json_each(?))`)
+      .bind(JSON.stringify(rows.map((r) => r.item_id)))
+      .all<{ item_id: string; price: number | null }>(),
+    db
+      .prepare(`SELECT l.product_id AS id, l.site, ${last} AS price FROM listings l WHERE l.product_id IN (SELECT value FROM json_each(?)) AND l.match_status = 'new'`)
+      .bind(JSON.stringify([...new Set(rows.map((r) => r.product_id))]))
+      .all<{ id: number; site: string; price: number | null }>(),
+  ])
+  const priceOf = new Map(own.results.map((r) => [r.item_id, r.price]))
+  const founderOf = new Map(founders.results.map((r) => [r.id, r]))
+
+  const writes: D1Statement[] = []
+  for (const r of rows) {
+    if (r.review_id !== null && r.match_status !== 'review') {
+      // Renamed or matched again since: this review is about a listing that has moved on.
+      writes.push(db.prepare(`UPDATE match_reviews SET status = 'stale', decided_at = ? WHERE id = ?`).bind(now, r.review_id))
+      done.stale++
+      continue
+    }
+    const p = parseListing(r.name, r.brand, r.image)
+    const q = parseListing(r.p_name, r.p_brand, r.p_image)
+    const samePhoto = Boolean(p.photo && p.photo === q.photo)
+    const founder = founderOf.get(r.product_id)
+    const score =
+      Math.round(
+        sameProbability({ name: r.name, parsed: p, price: priceOf.get(r.item_id) ?? null, site: r.site }, { name: r.p_name, parsed: q, price: founder?.price ?? null, site: founder?.site ?? '?' }, samePhoto) *
+          100,
+      ) / 100
+    const reasons = JSON.stringify([...confidence(p, q, samePhoto).reasons, `model ${Math.round(score * 100)}% sure`])
+    const level = score >= 0.5 ? 'medium' : 'low'
+    const matchAgain = db.prepare(`UPDATE listings SET product_id = NULL, match_status = NULL, match_score = NULL, matched_at = ? WHERE item_id = ?`).bind(now, r.item_id)
+    if (r.review_id !== null) {
+      if (score >= MODEL.sameFrom) {
+        writes.push(
+          db.prepare(`UPDATE match_reviews SET status = 'model_same', score = ?, reasons = ?, decided_at = ? WHERE id = ?`).bind(score, reasons, now, r.review_id),
+          db.prepare(`UPDATE listings SET product_id = ?, match_status = 'auto', match_score = ?, matched_at = ? WHERE item_id = ?`).bind(r.product_id, score, now, r.item_id),
+        )
+        done.linked++
+      } else if (score < MODEL.differentBelow) {
+        writes.push(db.prepare(`UPDATE match_reviews SET status = 'model_different', score = ?, reasons = ?, decided_at = ? WHERE id = ?`).bind(score, reasons, now, r.review_id), matchAgain)
+        done.different++
+      } else {
+        // Still for a person, with the model's score; dated now, so it isn't picked up again.
+        writes.push(db.prepare(`UPDATE match_reviews SET score = ?, level = ?, reasons = ?, created_at = ? WHERE id = ?`).bind(score, level, reasons, now, r.review_id))
+        done.review++
+      }
+    } else if (score >= MODEL.sameFrom) {
+      writes.push(db.prepare(`UPDATE listings SET match_score = ?, matched_at = ? WHERE item_id = ?`).bind(score, now, r.item_id))
+      done.kept++
+    } else if (score < MODEL.differentBelow) {
+      writes.push(matchAgain)
+      done.different++
+    } else {
+      writes.push(
+        db
+          .prepare(`INSERT INTO match_reviews (item_id, product_id, score, level, reasons, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`)
+          .bind(r.item_id, r.product_id, score, level, reasons, now),
+        db.prepare(`UPDATE listings SET product_id = NULL, match_status = 'review', match_score = ?, matched_at = ? WHERE item_id = ?`).bind(score, now, r.item_id),
+      )
+      done.review++
+    }
+  }
+  await db.batch(writes)
   return done
 }
 

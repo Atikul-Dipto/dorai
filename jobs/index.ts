@@ -11,7 +11,8 @@
  *      alert (worker/notify.ts) where a drop is worth telling;
  *   4. tidies the queue;
  *   5. runs the product matching engine (worker/catalog.ts) over a batch of
- *      listings not matched to a canonical product yet;
+ *      listings not matched to a canonical product yet, then has the
+ *      same-product model score a batch of the links and reviews made before it;
  *   6. once a day, drops the link to a visitor from rows over a year old
  *      (worker/profiles.ts), and clears spent sessions and long-gone guests.
  *
@@ -22,7 +23,7 @@
 
 import { tidyGuests } from '../worker/access.ts'
 import { tidySessions } from '../worker/accounts.ts'
-import { matchNewListings } from '../worker/catalog.ts'
+import { matchNewListings, rescoreBacklog } from '../worker/catalog.ts'
 import { notify } from '../worker/notify.ts'
 import { expireProfiles } from '../worker/profiles.ts'
 import { claim, complete, fail, tidy } from '../worker/queue.ts'
@@ -34,6 +35,9 @@ import { enqueueDueChecks, recordCheck } from '../worker/watchlist.ts'
 const CHECKS_PER_RUN = 3
 // Listings matched per run: ~7,000 a day, inside the free plan's D1 writes (two per listing).
 const MATCHES_PER_RUN = 50
+// Pre-model links and reviews scored again per run: ~5,800 a day, so the ~10,800 left on 2026-11-10
+// take about two days at a few D1 writes each.
+const RESCORES_PER_RUN = 40
 
 interface CheckPayload {
   itemId: string
@@ -101,6 +105,14 @@ export async function runJobs(env: Env, now = new Date()): Promise<{ checked: nu
     done.matched = m.new + m.auto + m.review + m.manual
   } catch {
     // tried again next run
+  }
+  // Then the links and reviews made before the model, a batch at a time (catalog.ts rescoreBacklog).
+  // Listings it rules out are matched again by the runs that follow.
+  try {
+    const r = await rescoreBacklog(db, iso, RESCORES_PER_RUN)
+    if (Object.values(r).some(Boolean)) console.log('rescored', JSON.stringify(r))
+  } catch (e) {
+    console.log('rescore failed', e instanceof Error ? e.message : String(e))
   }
   // The first run after midnight UTC.
   if (now.getUTCHours() === 0 && now.getUTCMinutes() < 10) await Promise.all([expireProfiles(db, now), tidySessions(db, now), tidyGuests(db, now)]).catch(() => {})

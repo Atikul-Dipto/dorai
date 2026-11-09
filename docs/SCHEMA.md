@@ -6,7 +6,7 @@ Migrations: `worker/migrations/0001_init.sql`, `0002_architecture.sql`, `0003_ma
 |---|---|---|
 | `listings` | **Offers**: one per store item (Daraz item, Cartup or Othoba page): name, store brand, image, photo id, and from the matching engine its fingerprint, `product_id`, `match_status` (NULL until processed · `new` · `auto` · `review` · `manual`) and `match_score` | every answer, compare, scheduled check; matching engine |
 | `products` | **Canonical products**: name, brand, model, identity words, fingerprint, photo, specs | matching engine (`catalog.ts`) |
-| `match_reviews` | **Manual review** queue: a listing, its best candidate product, the score, level and reasons; pending · approved · rejected | matching engine, `/api/pp/review` |
+| `match_reviews` | **Manual review** queue: a listing, its best candidate product, the score, level and reasons; pending · approved · rejected (a person) · model_same · model_different (the same-product model, re-scoring the backlog) · stale (the listing moved on first) | matching engine, `/api/pp/review` |
 | `price_history` | **Price history**: a point when the price changes or the last is >6h old | every answer, compare, scheduled check; `tools/keyword-batch.ts push` |
 | `users` | **Accounts**: email, PBKDF2 password hash, its salt and rounds, recovery code hash, whether search history is on | `/api/pp/auth` |
 | `sessions` | A signed-in browser: hash of the cookie's token, its user, when it expires (90 days) | `/api/pp/auth`, scheduled jobs |

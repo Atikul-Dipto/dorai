@@ -32,6 +32,7 @@ import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { buildIntent, coreQuery, describeQuery, parseIntent } from './intent.ts'
 import { matchRows, relations, type Row, sameProduct, samePicks, sharedPick } from './matching.ts'
 import { callPart } from './parts.ts'
+import { olderNote, unreachedNote } from './polite.ts'
 import { mainModel, rank } from './ranking.ts'
 import { type Segment, segmentOf, shopsFor, SITE_LABEL, type Site } from './segments.ts'
 import * as store from './store.ts'
@@ -157,9 +158,11 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
   const cartupBrowse = kinds.length && shown('cartup') ? callPart(env, 'cartupBrowse', kinds).catch(() => null) : Promise.resolve(null)
   // Daraz sometimes answers with a bot check instead of results; Cartup still answers then.
   let darazDown = false
+  let darazNote = ''
   const [first, coreHits, alt, nearHits, refinedHits] = await Promise.all([
-    darazSearch(intent.searchQuery, named ? {} : budget).catch(() => {
+    darazSearch(intent.searchQuery, named ? {} : budget).catch((error) => {
       darazDown = true
+      darazNote = unreachedNote(error)
       return { listings: [], categories: [], url: `https://www.daraz.com.bd/catalog/?q=${encodeURIComponent(intent.searchQuery)}` }
     }),
     optional(core),
@@ -501,7 +504,8 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     return answer
   })
 
-  if (darazDown) darazStore.note = "Couldn't reach Daraz just now — try again in a moment."
+  if (darazDown) darazStore.note = darazNote
+  else if (first.asOf) darazStore.note = [olderNote(first.asOf), darazStore.note].filter(Boolean).join(' ')
   const bySite = new Map<string, StoreAnswer>([darazStore, cartupStore, othobaStore, ...retailerStores].map((s) => [s.site, s]))
   const stores = shops.map((site) => bySite.get(site)).filter((s): s is StoreAnswer => s !== undefined)
   // ---- a kind of item: the same product across the shops, where there is one ----

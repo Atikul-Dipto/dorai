@@ -19,6 +19,8 @@ import { photoId } from './matching.ts'
 import type { D1Database, HistoryMatch, Listing, Voucher } from './types.ts'
 
 const SAME_PRICE_WINDOW_HOURS = 6
+// An unchanged listing's row (and its last_seen) is refreshed at most this often.
+const LISTING_REFRESH_HOURS = 24
 const VOUCHER_MAX_AGE_DAYS = 3
 
 export async function lookupHistory(db: D1Database, listings: Listing[]): Promise<Map<string, HistoryMatch>> {
@@ -50,18 +52,28 @@ export async function lookupHistory(db: D1Database, listings: Listing[]): Promis
 
 export async function recordListings(db: D1Database, listings: Listing[], now: string): Promise<void> {
   const cutoff = new Date(Date.parse(now) - SAME_PRICE_WINDOW_HOURS * 3600_000).toISOString()
-  const statements = listings.flatMap((l) => [
+  const stale = new Date(Date.parse(now) - LISTING_REFRESH_HOURS * 3600_000).toISOString()
+  // A listing that turns up twice in one answer is written once.
+  const once = [...new Map(listings.filter((l) => l.itemId).map((l) => [l.itemId, l])).values()]
+  const statements = once.flatMap((l) => [
     db
       .prepare(
         // A renamed listing goes through the matching pipeline again (catalog.ts).
+        // An unchanged one seen in the last day is left alone: every row
+        // written counts against D1's daily limit, its indexes' rows too.
         `INSERT INTO listings (item_id, site, name, url, brand, image, photo_id, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(item_id) DO UPDATE SET
            match_status = CASE WHEN listings.name = excluded.name THEN listings.match_status END,
            name = excluded.name, url = excluded.url, brand = COALESCE(NULLIF(excluded.brand, ''), listings.brand),
            image = COALESCE(NULLIF(excluded.image, ''), listings.image), photo_id = COALESCE(excluded.photo_id, listings.photo_id),
-           last_seen = excluded.last_seen`,
+           last_seen = excluded.last_seen
+         WHERE listings.name IS NOT excluded.name
+            OR (COALESCE(listings.brand, '') = '' AND NULLIF(excluded.brand, '') IS NOT NULL)
+            OR (COALESCE(listings.image, '') = '' AND NULLIF(excluded.image, '') IS NOT NULL)
+            OR (listings.photo_id IS NULL AND excluded.photo_id IS NOT NULL)
+            OR listings.last_seen < ?`,
       )
-      .bind(l.itemId, l.site, l.name, l.url, l.brand, l.image, photoId(l), now, now),
+      .bind(l.itemId, l.site, l.name, l.url, l.brand, l.image, photoId(l), now, now, stale),
     db
       .prepare(
         `INSERT INTO price_history (item_id, price, original_price, seen_at, source)

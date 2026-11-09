@@ -31,3 +31,10 @@ devices.id` (deleted with the device); `sessions.user_id → users.id`; `price_h
 D1's free plan: 500 MB per database, 5 GB per account, 5M rows read and 100k
 rows written a day. The database is ~146 MB (2026-11-05), mostly the two name
 indexes; a Cartup rebuild briefly holds a second copy of its index.
+
+Writes are the limit that bites first. Every row counts, and so does every index
+entry it changes. Before 2026-11-09 a search re-saved each of its ~57 listings
+(about 250 rows, ~300 searches a day). Now a listing is written only when it is
+new, renamed, gains a brand or photo it lacked, or was last written over a day
+ago (`LISTING_REFRESH_HOURS`); a price point only when the price changed or the
+last one is over 6 hours old.

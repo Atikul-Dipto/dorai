@@ -17,10 +17,23 @@ const HEADERS = {
 }
 const TIMEOUT_MS = 8000
 
+/**
+ * Daraz answering with a bot check instead of results (a challenge page, or
+ * 403/429). It does this to Cloudflare's addresses after a burst of searches,
+ * for about half an hour; asking again only makes it longer (polite.ts).
+ */
+export const BUSY = 'Daraz is asking for a bot check'
+export class DarazBusy extends Error {
+  constructor() {
+    super(BUSY)
+  }
+}
+
 export interface SearchResult {
   listings: Listing[]
   categories: { slug: string; title: string }[]
   url: string
+  asOf?: string // set when Daraz couldn't be reached and these are the results it gave then
 }
 
 const num = (v: unknown): number | null => {
@@ -75,8 +88,12 @@ export async function search(
     url.searchParams.set('price', `${Math.floor(opts.minPrice ?? 0)}-${opts.maxPrice != null ? Math.floor(opts.maxPrice) : ''}`)
   }
   const response = await fetch(url, { headers: { ...HEADERS, accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
+  if (response.status === 403 || response.status === 429) throw new DarazBusy()
   if (!response.ok) throw new Error(`Daraz search returned ${response.status}`)
-  const data = (await response.json()) as {
+  // The bot check comes back as a page, not JSON.
+  const data = (await response.json().catch(() => {
+    throw new DarazBusy()
+  })) as {
     mods?: { listItems?: unknown[]; filter?: { filterItems?: { name: string; options?: { value: string; title?: string }[] }[] } }
   }
   const listings = (data.mods?.listItems ?? []).map(toListing).filter((l): l is Listing => l !== null)

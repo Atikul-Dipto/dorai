@@ -65,7 +65,7 @@ test('a Daraz bot check: an honest error, not a guess', () =>
     () => new Response('<script>sec</script>', { status: 200 }),
     async () => {
       const result = await compare(readProductUrl('https://www.daraz.com.bd/products/x-i111.html')!, {})
-      assert.deepEqual(result, { label: 'Daraz', searchInstead: null, error: "Couldn't reach Daraz just now — try again in a moment." })
+      assert.deepEqual(result, { label: 'Daraz', searchInstead: null, error: "Couldn't reach Daraz just now: it's asking for a bot check, so DorAI gives it a few minutes. Try again shortly." })
     },
   ))
 

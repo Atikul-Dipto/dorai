@@ -9,10 +9,11 @@
 
 import * as cartup from './cartup.ts'
 import { readProductUrl } from './links.ts'
-import * as daraz from './daraz.ts'
+import { DarazBusy } from './daraz.ts'
 import { coreQuery } from './intent.ts'
 import * as othoba from './othoba.ts'
 import * as pickaboo from './pickaboo.ts'
+import * as polite from './polite.ts'
 import * as startech from './startech.ts'
 import type { Env, Listing } from './types.ts'
 
@@ -40,7 +41,10 @@ export interface StoreAdapter {
 async function darazCurrent(item: ItemRef): Promise<Listing | null> {
   for (const q of [item.name, coreQuery(item.name)]) {
     if (!q) continue
-    const hit = (await daraz.search(q)).listings.find((l) => l.itemId === item.itemId)
+    const found = await polite.search(q)
+    // A watched price is only ever checked live: Daraz's results from earlier aren't a check.
+    if (found.asOf) throw new DarazBusy()
+    const hit = found.listings.find((l) => l.itemId === item.itemId)
     if (hit) return hit
   }
   return null
@@ -62,7 +66,7 @@ export const STORES: Record<Site, StoreAdapter> = {
   daraz: {
     site: 'daraz',
     label: 'Daraz',
-    find: async (title) => (await daraz.search(title)).listings,
+    find: async (title) => (await polite.search(title)).listings,
     current: darazCurrent,
   },
   cartup: {

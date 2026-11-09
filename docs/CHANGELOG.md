@@ -5,6 +5,15 @@ has the detail.
 
 ## 2026-11-09
 
+- **Room for more shoppers.** A search no longer re-saves every listing it saw:
+  only new, renamed or day-old ones. That cuts the database writes a search
+  costs several times over, and those writes were the daily limit that would
+  have stopped the site first.
+- **Daraz is asked less, and waited out politely.** The same Daraz search is
+  read at most once in 30 minutes and shared by everyone who asks. When Daraz
+  asks for a bot check, DorAI leaves it alone for 5 minutes, says so plainly,
+  and shows Daraz's prices from earlier, labelled with their age, instead of
+  nothing.
 - **No more vouchers.** The public Daraz voucher list, the "with voucher" price
   and the voucher checks are gone from the page, and the search no longer takes
   vouchers off any price: every price shown is the shop's own. Vouchers only

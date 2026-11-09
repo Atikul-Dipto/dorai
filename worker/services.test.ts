@@ -636,6 +636,36 @@ test('the matching pipeline over the database: link, new product, review, and th
   assert.equal((raw.prepare("SELECT match_status FROM listings WHERE item_id = 'cartup:3'").get() as { match_status: string | null }).match_status, null)
 })
 
+test('a listing seen again unchanged is not written again for a day; a new name or photo is written at once', async () => {
+  const { db, raw } = freshDb()
+  const awei = { ...listing('111', 'daraz', 'Awei T50 Wireless Earbuds', 1100), brand: 'Awei' }
+  const row = () => raw.prepare("SELECT name, image, last_seen, match_status FROM listings WHERE item_id = '111'").get() as { name: string; image: string; last_seen: string; match_status: string | null }
+  const changed = async (l: Listing, at: string) => {
+    const before = (raw.prepare('SELECT total_changes() AS n').get() as { n: number }).n
+    await recordListings(db, [l], at)
+    return (raw.prepare('SELECT total_changes() AS n').get() as { n: number }).n - before
+  }
+  assert.equal(await changed(awei, '2026-11-09T01:00:00.000Z'), 2) // the listing, and its first price
+  raw.exec("UPDATE listings SET match_status = 'auto' WHERE item_id = '111'")
+
+  // Same name, same price, an hour later: nothing written.
+  assert.equal(await changed(awei, '2026-11-09T02:00:00.000Z'), 0)
+  assert.equal(row().last_seen, '2026-11-09T01:00:00.000Z')
+  // A new price is history; the listing itself stays as it was.
+  assert.equal(await changed({ ...awei, price: 1050 }, '2026-11-09T03:00:00.000Z'), 1)
+  // A photo it didn't have is written at once, and the match it had stands.
+  assert.equal(await changed({ ...awei, price: 1050, image: 'https://img/a.jpg' }, '2026-11-09T04:00:00.000Z'), 1)
+  assert.equal(row().image, 'https://img/a.jpg')
+  assert.equal(row().match_status, 'auto')
+  // A day on, it's refreshed (with the 6-hourly price point).
+  assert.equal(await changed({ ...awei, price: 1050, image: 'https://img/a.jpg' }, '2026-11-10T05:00:00.000Z'), 2)
+  assert.equal(row().last_seen, '2026-11-10T05:00:00.000Z')
+  // A new name is written at once, and matched again.
+  await recordListings(db, [{ ...awei, price: 1050, name: 'Awei T50 Pro Wireless Earbuds' }], '2026-11-10T06:00:00.000Z')
+  assert.equal(row().name, 'Awei T50 Pro Wireless Earbuds')
+  assert.equal(row().match_status, null)
+})
+
 test('search finds relevant products in the catalogue, and reads the offers live search missed again', async () => {
   const { db } = freshDb()
   const awei = 'Awei T50 Wireless Headphones Bluetooth 5.3 Earbuds With Mic'

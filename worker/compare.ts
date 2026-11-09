@@ -17,6 +17,7 @@ import { bestVoucher, checkAll, listingHints } from './eligibility.ts'
 import { coreQuery } from './intent.ts'
 import { type ProductRef, readProductUrl } from './links.ts'
 import { callPart } from './parts.ts'
+import { olderNote, unreachedNote } from './polite.ts'
 import { mainModel, tokens } from './ranking.ts'
 import * as store from './store.ts'
 import type { Env, HistoryMatch, Intent, Listing, Voucher } from './types.ts'
@@ -114,8 +115,16 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   // "Hoco EQ34 Plus Rima ANC+ENC TWS Earbuds - Bluetooth 5.4 - App Supported
   // Wireless Headphones - 7H Playtime..." — finds generic earbuds on Cartup;
   // "Hoco EQ34" finds it); the Cartup page itself when that's the source.
+  let darazError: unknown = null
   const [darazHits, found, othobaFound, own] = await Promise.all([
-    Promise.all(searches.map((q) => callPart(env, 'darazSearch', q).catch(() => null))),
+    Promise.all(
+      searches.map((q) =>
+        callPart(env, 'darazSearch', q).catch((error) => {
+          darazError = error
+          return null
+        }),
+      ),
+    ),
     Promise.all(searches.map((q) => callPart(env, 'cartupLookup', q).catch(() => notRead))),
     Promise.all(searches.map((q) => callPart(env, 'othobaLookup', q).catch(() => notRead))),
     ref.site === 'cartup'
@@ -127,6 +136,8 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
   const unique = (ls: Listing[]) => [...new Map(ls.map((l) => [l.itemId, l])).values()]
   let darazPool = unique(darazHits.flatMap((r) => r?.listings ?? []))
   const darazDown = darazHits.every((r) => r === null)
+  // Daraz's results from earlier, when it couldn't be reached now (polite.ts).
+  const darazAsOf = darazHits.find((r) => r?.asOf)?.asOf ?? null
   const ownIf = (site: Listing['site']) => (own && ref.site === site ? [own] : [])
   const cartupPool = unique([...ownIf('cartup'), ...found.flatMap((f) => f.listings)])
   const othobaPool = unique([...ownIf('othoba'), ...othobaFound.flatMap((f) => f.listings)])
@@ -146,7 +157,7 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
       searchInstead: worthSearching(name) ? name : null,
       error:
         ref.site === 'daraz' && darazDown
-          ? "Couldn't reach Daraz just now — try again in a moment."
+          ? unreachedNote(darazError, false)
           : ref.site === 'othoba'
             ? "That Othoba page isn't a product page, or it couldn't be read just now."
             : `${label} isn't showing this listing right now.`,
@@ -197,7 +208,8 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
       note: null,
       link,
     }
-    if (!pick) answer.note = site === 'daraz' && darazDown ? "Couldn't reach Daraz just now." : `${label} doesn't list this product right now.`
+    if (!pick) answer.note = site === 'daraz' && darazDown ? unreachedNote(darazError) : `${label} doesn't list this product right now.`
+    if (site === 'daraz' && darazAsOf) answer.note = [olderNote(darazAsOf), answer.note].filter(Boolean).join(' ')
     return answer
   }
   const stores = [
@@ -216,13 +228,13 @@ export async function compare(ref: ProductRef, env: Env, opts: { name?: string; 
     source: here,
     stores,
     cheaper: elsewhere && saving > 0 ? { site: elsewhere.site, label: elsewhere.label, saving } : null,
-    hotDeal: darazDown ? null : hotDeal(stores, true),
+    hotDeal: darazDown || darazAsOf ? null : hotDeal(stores, true),
     checkedAt: nowIso,
     cached: false,
     unreachable: darazDown ? ['daraz'] : [],
   }
   // A store that couldn't be checked is tried again next time, not remembered for 6 hours.
-  if (!comparison.unreachable.length) {
+  if (!comparison.unreachable.length && !darazAsOf) {
     await writeCache(cacheKey, comparison, CACHE_SECONDS)
   }
   return comparison

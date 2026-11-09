@@ -599,8 +599,8 @@ test('the matching pipeline over the database: link, new product, review, and th
     [offer('cartup:2', 'cartup', 'Starship Full Cream Milk Powder – 1 Kg', 'Starship'), 'auto'],
     [offer('cartup:3', 'cartup', 'Farmland Full Cream Milk Powder – 1kg', 'Farmland'), 'new'],
     [offer('d4', 'daraz', 'Starship Full Cream Milk Powder - 500gm', 'Starship'), 'new'],
-    [offer('othoba:5', 'othoba', 'Starship Instant Full Cream Milk Powder 1kg', ''), 'review'],
-    [offer('cartup:6', 'cartup', 'Starship Instant Full Cream Milk Powder 1kg', ''), 'review'],
+    [offer('othoba:5', 'othoba', 'Starship Instant Full Cream Milk Powder Family Pack 1kg', ''), 'review'],
+    [offer('cartup:6', 'cartup', 'Starship Instant Full Cream Milk Powder Family Pack 1kg', ''), 'review'],
   ]
   for (const [i, [l, expected]] of steps.entries()) {
     await recordListings(db, [l], at(i))
@@ -619,12 +619,12 @@ test('the matching pipeline over the database: link, new product, review, and th
   assert.equal(productOf('cartup:6'), productOf('d1'))
   assert.equal(await decideReview(db, reviewOf('othoba:5').id, true, at(7)), 0)
   // ...and that title arriving later follows the decision.
-  await recordListings(db, [offer('othoba:7', 'othoba', 'Starship Instant Full Cream Milk Powder 1kg', '')], at(8))
+  await recordListings(db, [offer('othoba:7', 'othoba', 'Starship Instant Full Cream Milk Powder Family Pack 1kg', '')], at(8))
   assert.deepEqual(await matchNewListings(db, at(8), 10), { new: 0, auto: 0, review: 0, manual: 1 })
   assert.equal(productOf('othoba:7'), productOf('d1'))
 
   // "Different": back through the pipeline without that product, so a new one, which the twin then joins.
-  await recordListings(db, [offer('d8', 'daraz', 'Starship Full Cream Milk Powder Pouch 1kg', ''), offer('d9', 'daraz', 'Starship Full Cream Milk Powder Pouch 1kg', '')], at(9))
+  await recordListings(db, [offer('d8', 'daraz', 'Starship Full Cream Milk Powder Pouch Family Pack 1kg', ''), offer('d9', 'daraz', 'Starship Full Cream Milk Powder Pouch Family Pack 1kg', '')], at(9))
   assert.deepEqual(await matchNewListings(db, at(9), 10), { new: 0, auto: 0, review: 2, manual: 0 })
   assert.equal(await decideReview(db, reviewOf('d8').id, false, at(9)), 2)
   assert.deepEqual(await matchNewListings(db, at(9), 10), { new: 1, auto: 1, review: 0, manual: 0 })

@@ -5,8 +5,11 @@
  *   store listing → extract brand and model → normalize the title
  *     → extract specifications → product fingerprint → existing product?
  *        no  → create a new canonical product
- *        yes → confidence score → high          → automatic match (linked)
- *                               → medium / low  → manual review (/review)
+ *        yes → hard rules and confidence score (a shortlist)
+ *            → the same-product model (pairModel.ts), 0 to 1
+ *                 → high (≥ MODEL.sameFrom)        → automatic match (linked)
+ *                 → in between                     → manual review (/review)
+ *                 → low (< MODEL.differentBelow)   → a new canonical product
  *
  * It runs in the scheduled jobs (jobs/index.ts), a batch of unprocessed
  * listings per run; a listing whose name changes is processed again. Answers
@@ -17,6 +20,8 @@
 
 import { COLOURS, photoFile, SALES_TALK, STOP, UNBRANDED } from './matching.ts'
 import { cleanText } from './normalize.ts'
+import { type PairSide, sameProbability } from './pairModel.ts'
+import { WEIGHTS } from './pairWeights.ts'
 import { amountOf, holdsCode, isBundle, isNetworkGen, modelTokens, QUANTITY_RE, storageOf, tokens, variantsOf } from './ranking.ts'
 import type { D1Database, Listing } from './types.ts'
 
@@ -272,6 +277,28 @@ async function createProduct(db: D1Database, l: StoredListing, p: Parsed, now: s
   return row!.id
 }
 
+/**
+ * Where the model's score decides. Measured out of fold on 1,049 labelled
+ * pairs (scripts/train-matcher.ts): links from `sameFrom` up were 95.5% right,
+ * and 96% of pairs under `differentBelow` were different products.
+ */
+export const MODEL = { sameFrom: WEIGHTS.autoThreshold, differentBelow: 0.2 }
+
+/** The listing's last price, and each candidate product's founding listing's store and last price: the model weighs the price gap. */
+async function sidesOf(db: D1Database, itemId: string, productIds: number[]): Promise<{ own: number | null; products: Map<number, { site: string; price: number | null }> }> {
+  const last = `(SELECT price FROM price_history WHERE item_id = l.item_id ORDER BY seen_at DESC LIMIT 1)`
+  const [own, others] = await Promise.all([
+    db.prepare(`SELECT ${last} AS price FROM listings l WHERE l.item_id = ?`).bind(itemId).first<{ price: number | null }>(),
+    productIds.length
+      ? db
+          .prepare(`SELECT l.product_id AS id, l.site, ${last} AS price FROM listings l WHERE l.product_id IN (SELECT value FROM json_each(?)) AND l.match_status = 'new'`)
+          .bind(JSON.stringify(productIds))
+          .all<{ id: number; site: string; price: number | null }>()
+      : Promise.resolve({ results: [] as { id: number; site: string; price: number | null }[] }),
+  ])
+  return { own: own?.price ?? null, products: new Map(others.results.map((r) => [r.id, { site: r.site, price: r.price }])) }
+}
+
 export type Outcome = 'new' | 'auto' | 'review' | 'manual'
 
 /** One listing through the whole pipeline. */
@@ -298,12 +325,25 @@ export async function matchListing(db: D1Database, l: StoredListing, now: string
     await db.batch([mark('manual', twin.id, null), db.prepare(`UPDATE products SET updated_at = ? WHERE id = ?`).bind(now, twin.id)])
     return { outcome: 'manual', productId: twin.id, score: null }
   }
-  const scored = (await candidates(db, p, l.item_id))
+  // The rules shortlist (a hard conflict, or too little in common, rules a
+  // product out); the model (pairModel.ts) says how likely each one left is
+  // this product. Its score decides: linked, a person decides, or a new product.
+  const shortlist = (await candidates(db, p, l.item_id))
     .filter((c) => !rejected.has(c.row.id))
-    .map((c) => ({ ...c, ...confidence(p, parseListing(c.row.name, c.row.brand, c.row.image), c.samePhoto) }))
+    .map((c) => ({ ...c, parsed: parseListing(c.row.name, c.row.brand, c.row.image) }))
+    .map((c) => ({ ...c, ...confidence(p, c.parsed, c.samePhoto) }))
+    .filter((c) => levelOf(c.score) !== 'none')
+  const sides = await sidesOf(db, l.item_id, shortlist.map((c) => c.row.id))
+  const me: PairSide = { name: l.name, parsed: p, price: sides.own, site: l.site }
+  const scored = shortlist
+    .map((c) => {
+      const other = sides.products.get(c.row.id)
+      const score = Math.round(sameProbability(me, { name: c.row.name, parsed: c.parsed, price: other?.price ?? null, site: other?.site ?? '?' }, c.samePhoto) * 100) / 100
+      return { ...c, score, reasons: [...c.reasons, `model ${Math.round(score * 100)}% sure`] }
+    })
     .sort((a, b) => b.score - a.score)
   const best = scored[0]
-  const level = best ? levelOf(best.score) : 'none'
+  const level: Level = !best || best.score < MODEL.differentBelow ? 'none' : best.score >= MODEL.sameFrom ? 'high' : best.score >= 0.5 ? 'medium' : 'low'
 
   if (level === 'none') {
     // Existing product match? No: a new canonical product.

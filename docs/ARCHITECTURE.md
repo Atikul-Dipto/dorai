@@ -157,18 +157,20 @@ flowchart TB
   specs["Extract Specifications<br/>extractSpecs: size, storage, variant, network, colour, bundle"]
   fp["Generate Product Fingerprint<br/>fingerprint"]
   exists{"Existing Product Match?<br/>candidates: fingerprint · model · photo · brand + words"}
-  score["Confidence Score<br/>confidence: 0–1, with reasons"]
-  level{"Confidence Level<br/>levelOf"}
+  score["Confidence Score<br/>confidence: 0–1, with reasons (a shortlist)"]
+  model["Same-product model<br/>pairModel.ts: 0–1, learned from labelled pairs"]
+  level{"Model's score<br/>MODEL"}
   auto["Automatic Match"]
   review["Manual Review<br/>match_reviews · /review"]
   create["Create New Canonical Product<br/>products"]
   link["Link to Existing Product<br/>listings.product_id"]
 
   listing --> brand --> title --> specs --> fp --> exists
-  exists -- "Yes (best ≥ 0.40)" --> score --> level
+  exists -- "Yes (rules ≥ 0.40)" --> score --> model --> level
   exists -- "No" --> create
-  level -- "High (≥ 0.80)" --> auto --> link
-  level -- "Medium (≥ 0.60) / Low (≥ 0.40)" --> review
+  level -- "Same (≥ 0.80)" --> auto --> link
+  level -- "Can't tell (0.20–0.80)" --> review
+  level -- "Different (< 0.20)" --> create
   review -- "Same product" --> link
   review -- "Different" --> exists
 ```
@@ -182,7 +184,9 @@ flowchart TB
 | Fingerprint | `m|brand|model|specs` with a model code, `w|brand|all identity words|specs` without. Equal fingerprints with a brand or a model code describe one product; without either ("Bluetooth music receiver") they may be two. |
 | Candidates | Products with a listing of the same fingerprint or photo file, the same model code, or the same brand and one of the three longest identity words. Products a person rejected for this listing, or for a listing with the same fingerprint, are left out. |
 | Confidence | A different brand, model, size, storage, variant, network, dimensions, strength or volume, or a bundle against a single item, scores 0 (a spec only one title states is no conflict). Otherwise: same brand 0.30 (unknown 0.10), same model 0.50 (code in the other title 0.30), shared identity words up to 0.45 (0.20 with a model), stated size, storage or dimensions agreeing 0.10, identical title of 5+ words 0.25, same photo file 0.45; at most 1. |
-| Levels | High ≥ 0.80 links automatically. Medium ≥ 0.60 and low ≥ 0.40 wait for a person at `/review` (admin token); the listing stays unlinked meanwhile. Below 0.40 there's no existing match: a new canonical product. |
+| Shortlist | A candidate the confidence rules score at 0.40 or more goes to the model; below that there's no existing match. |
+| Model | `worker/pairModel.ts`: a logistic regression over ~30 clues a pair gives (the rules' score, shared words, an identical title, the same photo, the price gap, a flavour or scent, gender, pack count, model code or version word only one side has, a copy, the same store…), trained by `scripts/train-matcher.ts` on the labelled pairs in `data/matching/` and kept in `worker/pairWeights.ts`. Its score is how likely the listing is that product. Measured out of fold on 1,049 pairs (2026-11-09): links at ≥ 0.80 were 95.5% right (the rules' were 90.4%) and found 71.6% of the same-product pairs (rules 67.6%); 96% of pairs under 0.20 were different. Under 0.5 ms a pair. |
+| Levels | The model's score ≥ 0.80 links automatically. 0.20–0.80 waits for a person at `/review` (admin token); the listing stays unlinked meanwhile. Under 0.20, or no candidate on the shortlist: a new canonical product. |
 | Review | "Same product" links it (`manual`). "Different" remembers the pair and sends the listing through again without that product. One decision covers every pending review of that product for a listing with the same fingerprint (one title copied by five sellers), and later listings with that fingerprint follow it (`manual`, no review). |
 
 Answers don't wait for the catalogue: they match live (`matching.ts`). The

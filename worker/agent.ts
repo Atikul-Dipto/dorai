@@ -430,7 +430,7 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     why: null,
     matches: [],
     note: null,
-    link: categories[0] ? `https://www.cartup.com/category/${categories[0]}` : null,
+    link: categories[0] ? `https://cartup.com/category/${categories[0]}` : null,
   }
   if (named) {
     const same = closestFirst(cartupSame.map(toResult), intent.searchQuery)

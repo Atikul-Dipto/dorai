@@ -6,7 +6,7 @@
  */
 
 // Raised whenever matching changes, so cached answers from the old rules are dropped.
-export const CACHE_VERSION = 21
+export const CACHE_VERSION = 22
 
 const cacheStore = () => (globalThis as { caches?: { default?: Cache } }).caches?.default
 

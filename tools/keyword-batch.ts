@@ -133,7 +133,7 @@ globalThis.fetch = async (input: string | URL | Request, init?: RequestInit) => 
       } catch {
         darazRefusals++ // a challenge page instead of results
       }
-    } else if (url.hostname === 'www.cartup.com' && response.ok) {
+    } else if (/^(www\.)?cartup\.com$/.test(url.hostname) && response.ok) {
       const html = await response.clone().text()
       if (url.pathname.startsWith('/product/')) {
         const slug = url.pathname.slice('/product/'.length)
@@ -229,7 +229,7 @@ async function runAll(csvFile: string) {
       // More of Cartup's own listings for this name than a shopper could wait for.
       const { slugs } = await searchIndex(db, keyword)
       for (const slug of slugs.filter((s) => !fetchedCartup.has(s)).slice(0, extraPages)) {
-        await fetch(`https://www.cartup.com/product/${slug}`, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(6000) }).catch(() => null)
+        await fetch(`https://cartup.com/product/${slug}`, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(6000) }).catch(() => null)
         await sleep(300)
       }
     } catch (e) {

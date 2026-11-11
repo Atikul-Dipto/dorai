@@ -46,8 +46,13 @@ async function adopt(ctx: Ctx, db: D1Database, user: User, visitor: unknown) {
 export const onRequestGet = async ({ request, env }: Ctx) => {
   const db = env.PP_DB
   if (!db) return json(request, { error: 'Not configured.' }, 503)
-  const user = await sessionUser(db, request, new Date())
-  return json(request, { user: user ? shape(user) : null, guest: user ? null : await guestCount(request, env) })
+  try {
+    const user = await sessionUser(db, request, new Date())
+    return json(request, { user: user ? shape(user) : null, guest: user ? null : await guestCount(request, env) })
+  } catch {
+    // The database out of reach (its free daily reads used up): no one's signed in for now, and searches aren't counted.
+    return json(request, { user: null, guest: null, unavailable: true })
+  }
 }
 
 export const onRequestPost = async (ctx: Ctx) => {

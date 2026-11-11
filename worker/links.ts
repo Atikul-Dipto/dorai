@@ -28,7 +28,7 @@ export function readProductUrl(text: string): ProductRef | null {
   if (c) {
     const slug = decodeURIComponent(c[1])
     const id = /[_-](\d{9,})[_-][a-z0-9]+$/.exec(slug)?.[1] ?? slug
-    return { site: 'cartup', itemId: `cartup:${id}`, slug, url: `https://www.cartup.com/product/${slug}` }
+    return { site: 'cartup', itemId: `cartup:${id}`, slug, url: `https://cartup.com/product/${slug}` }
   }
   const o = OTHOBA_PAGE.exec(text)
   if (o) return { site: 'othoba', itemId: `othoba-page:${o[1]}`, slug: o[1], url: `${OTHOBA}/${o[1]}` }

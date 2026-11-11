@@ -44,8 +44,8 @@ import requests
 from .d1 import PROJECT, execute
 
 DATA = PROJECT / "data" / "cartup"
-SITEMAP_INDEX = "https://www.cartup.com/sitemap-product-all.xml.gz"
-CATEGORY_INDEX = "https://www.cartup.com/sitemap-category-all.xml.gz"
+SITEMAP_INDEX = "https://cartup.com/sitemap-product-all.xml.gz"
+CATEGORY_INDEX = "https://cartup.com/sitemap-category-all.xml.gz"
 UA = "Mozilla/5.0 (compatible; PricePulseIndexer/1.0; +https://dorai-bd.pages.dev/)"
 
 DOC_BLOCK = 64

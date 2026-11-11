@@ -11,6 +11,7 @@ import { onRequestDelete as authDelete, onRequestGet as authGet, onRequestPost a
 import { onRequestGet as askGet, onRequestPost as askPost } from '../functions/api/pp/ask.ts'
 import { onRequestGet as compareGet, onRequestPost as comparePost } from '../functions/api/pp/compare.ts'
 import { onRequestPost as partPost } from '../functions/api/pp/part.ts'
+import { onRequestGet as statsGet } from '../functions/api/pp/stats.ts'
 import { runJobs } from '../jobs/index.ts'
 import { admit, forGuest, GUEST_ROWS, GUEST_SEARCHES, giveBack, guestCount, historyKey } from './access.ts'
 import { deleteAccount, logIn, profileKey, sessionUser, setHistory } from './accounts.ts'
@@ -155,6 +156,23 @@ function browser(env: { PP_DB: D1Database }, address = '203.0.113.1') {
   return { jar, keep, request, auth, ctx: (url: string, method: string, body?: unknown) => ({ request: request(url, method, body), env, waitUntil: () => {} }) }
 }
 const SIGNUP = { action: 'signup', email: 'Rahim@Example.com ', password: 'correct horse' }
+
+test("a database that can't be read (the free plan's daily reads used up): searches go ahead uncounted, and nothing answers a bare 500", async () => {
+  const refuse = async () => {
+    throw new Error("D1_ERROR: Your account has exceeded D1's free tier daily row read limit.")
+  }
+  const statement = (): D1Statement => ({ bind: () => statement(), first: refuse, all: refuse, run: refuse }) as unknown as D1Statement
+  const db = { prepare: () => statement(), batch: refuse } as unknown as D1Database
+  const request = (path: string) => new Request(`https://dorai-bd.pages.dev${path}`, { headers: { cookie: 'dorai_session=abc' } })
+  const access = await admit(request('/api/pp/ask'), { PP_DB: db }, new Date('2026-11-11T06:00:00Z'))
+  assert.equal(access.allowed, true)
+  assert.equal(access.guest, null)
+  const stats = await statsGet({ request: request('/api/pp/stats'), env: { PP_DB: db } })
+  assert.equal(stats.status, 503)
+  const me = await authGet({ request: request('/api/pp/auth'), env: { PP_DB: db } } as never)
+  assert.equal(me.status, 200)
+  assert.deepEqual(await me.json(), { user: null, guest: null, unavailable: true })
+})
 
 test('accounts: sign up, log in, log out; the password is never stored, and the cookie is out of scripts\' reach', async () => {
   const { db, raw } = freshDb()
@@ -341,7 +359,7 @@ test('a guest sees each store\'s pick and first rows; the answer says how many m
 })
 
 const CARTUP_DOWN = '<html><body><p>The product is temporarily unavailable. </p></body></html>'
-const LINK = 'https://www.cartup.com/product/herman_chilli_mayanise_500ml_637903106336006_nw7yc5'
+const LINK = 'https://cartup.com/product/herman_chilli_mayanise_500ml_637903106336006_nw7yc5'
 
 test("a listing that's gone: the site searches its name instead, and says so", async () => {
   const { db } = freshDb()

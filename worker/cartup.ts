@@ -212,7 +212,7 @@ function toListing(data: LdProduct, slug: string): Listing | null {
     site: 'cartup',
     itemId: `cartup:${id}`,
     name: String(data.name ?? nameFromSlug(slug)).trim(),
-    url: `https://www.cartup.com/product/${slug}`,
+    url: `https://cartup.com/product/${slug}`,
     image: (Array.isArray(data.image) ? data.image[0] : data.image) ?? '',
     price,
     originalPrice: null,
@@ -280,12 +280,12 @@ export function parseCategoryPage(html: string): Listing[] {
     .map((e) => e.item)
     .filter((item): item is LdProduct => Boolean(item?.url))
     .map((item) => toListing(item, String(item.url).split('/product/')[1] ?? ''))
-    .filter((l): l is Listing => l !== null && l.url !== 'https://www.cartup.com/product/')
+    .filter((l): l is Listing => l !== null && l.url !== 'https://cartup.com/product/')
     .map(normalizeListing)
 }
 
 export async function fetchProduct(slug: string): Promise<Listing | null> {
-  const response = await fetch(`https://www.cartup.com/product/${slug}`, {
+  const response = await fetch(`https://cartup.com/product/${slug}`, {
     headers: { 'user-agent': UA, accept: 'text/html' },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
@@ -414,7 +414,7 @@ export interface Browsed {
 
 /** One category page's in-stock-or-not listings. */
 export async function fetchCategory(category: string): Promise<Listing[]> {
-  const response = await fetch(`https://www.cartup.com/category/${category}`, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
+  const response = await fetch(`https://cartup.com/category/${category}`, { headers: { 'user-agent': UA, accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
   return response.ok ? parseCategoryPage(await response.text()) : []
 }
 

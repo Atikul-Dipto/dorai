@@ -49,8 +49,21 @@ export async function guestCount(request: Request, env: Env): Promise<GuestCount
   return { used: row?.used ?? 0, limit: GUEST_SEARCHES }
 }
 
-/** Counts this search for a guest, or says it's over. An account always passes. */
+/**
+ * Counts this search for a guest, or says it's over. An account always passes.
+ * When the database can't be read (on 2026-11-11 the free plan's daily reads
+ * ran out and every search failed with a bare 500), the search goes ahead
+ * uncounted: the stores answer without it, only price memory is missing.
+ */
 export async function admit(request: Request, env: Env, now: Date): Promise<Access> {
+  try {
+    return await count(request, env, now)
+  } catch {
+    return NOT_COUNTED
+  }
+}
+
+async function count(request: Request, env: Env, now: Date): Promise<Access> {
   const db = env.PP_DB
   if (!db) return NOT_COUNTED
   const user = await sessionUser(db, request, now)

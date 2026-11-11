@@ -294,6 +294,16 @@ async function createProduct(db: D1Database, l: StoredListing, p: Parsed, now: s
  */
 export const MODEL = { sameFrom: WEIGHTS.autoThreshold, differentBelow: 0.2 }
 
+/**
+ * Each of these products' founding listing, with `last` (its last price).
+ * From the ids, by the product index: left to itself D1 scanned every 'new'
+ * listing (about 11,000 rows) per call, and on 2026-11-11 that used up the
+ * free plan's 5 million rows read a day and took the site down. CROSS JOIN
+ * fixes the order; the + keeps match_status from choosing the index.
+ */
+const foundersSql = (last: string) =>
+  `SELECT l.product_id AS id, l.site, ${last} AS price FROM json_each(?) AS j CROSS JOIN listings AS l ON l.product_id = j.value WHERE +l.match_status = 'new'`
+
 /** The listing's last price, and each candidate product's founding listing's store and last price: the model weighs the price gap. */
 async function sidesOf(db: D1Database, itemId: string, productIds: number[]): Promise<{ own: number | null; products: Map<number, { site: string; price: number | null }> }> {
   const last = `(SELECT price FROM price_history WHERE item_id = l.item_id ORDER BY seen_at DESC LIMIT 1)`
@@ -301,7 +311,7 @@ async function sidesOf(db: D1Database, itemId: string, productIds: number[]): Pr
     db.prepare(`SELECT ${last} AS price FROM listings l WHERE l.item_id = ?`).bind(itemId).first<{ price: number | null }>(),
     productIds.length
       ? db
-          .prepare(`SELECT l.product_id AS id, l.site, ${last} AS price FROM listings l WHERE l.product_id IN (SELECT value FROM json_each(?)) AND l.match_status = 'new'`)
+          .prepare(foundersSql(last))
           .bind(JSON.stringify(productIds))
           .all<{ id: number; site: string; price: number | null }>()
       : Promise.resolve({ results: [] as { id: number; site: string; price: number | null }[] }),
@@ -447,11 +457,11 @@ export async function rescoreBacklog(db: D1Database, now: string, limit: number)
   const last = `(SELECT price FROM price_history WHERE item_id = l.item_id ORDER BY seen_at DESC LIMIT 1)`
   const [own, founders] = await Promise.all([
     db
-      .prepare(`SELECT l.item_id, ${last} AS price FROM listings l WHERE l.item_id IN (SELECT value FROM json_each(?))`)
+      .prepare(`SELECT l.item_id, ${last} AS price FROM json_each(?) AS j CROSS JOIN listings AS l ON l.item_id = j.value`)
       .bind(JSON.stringify(rows.map((r) => r.item_id)))
       .all<{ item_id: string; price: number | null }>(),
     db
-      .prepare(`SELECT l.product_id AS id, l.site, ${last} AS price FROM listings l WHERE l.product_id IN (SELECT value FROM json_each(?)) AND l.match_status = 'new'`)
+      .prepare(foundersSql(last))
       .bind(JSON.stringify([...new Set(rows.map((r) => r.product_id))]))
       .all<{ id: number; site: string; price: number | null }>(),
   ])

@@ -3,6 +3,18 @@
 What changed for shoppers and for the system, newest first. Commit history
 has the detail.
 
+## 2026-11-11
+
+- **Searches failed with "The agent answered 500" for everyone.** A query
+  added on 11-09 for the matching model read ~11,000 rows each run instead of
+  a few, and used up the free plan's 5 million database reads a day; every
+  search then crashed. The query now reads only the rows it needs, and if the
+  database is ever out of reach again, searches still answer (uncounted,
+  without price memory) instead of crashing.
+- **Cartup moved off `www.`:** `www.cartup.com` now answers 404 to every
+  page, so every Cartup product read failed ("Cartup isn't showing this
+  listing"). DorAI now reads `cartup.com`; old `www.` links still work.
+
 ## 2026-11-09
 
 - **A same-product model, trained here.** New listings are now matched to the

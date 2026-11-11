@@ -12,7 +12,7 @@ test('a product address from a page, or inside the text an app shares', () => {
     slug: 'hoco-eq34-plus-rima-tws-earbuds',
     url: 'https://www.daraz.com.bd/products/hoco-eq34-plus-rima-tws-earbuds-i412345678.html',
   })
-  assert.equal(readProductUrl('I found this on Cartup! https://www.cartup.com/product/radhuni_mustard_oil_-_1000ml_1334969234769923_dsxi7m')?.itemId, 'cartup:1334969234769923')
+  assert.equal(readProductUrl('I found this on Cartup! https://cartup.com/product/radhuni_mustard_oil_-_1000ml_1334969234769923_dsxi7m')?.itemId, 'cartup:1334969234769923')
   assert.equal(readProductUrl('https://www.daraz.com.bd/catalog/?q=lotion'), null)
 })
 

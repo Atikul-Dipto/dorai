@@ -13,6 +13,7 @@
  * Only a handful of pages are fetched per question (MAX_PAGES), never a crawl.
  */
 
+import { SECTIONS } from './cartupSections.ts'
 import { compact, foundWords, isAccessory, modelTokens, tokens } from './ranking.ts'
 import { decodeEntities, normalizeListing } from './normalize.ts'
 import type { D1Database, Listing } from './types.ts'
@@ -386,7 +387,13 @@ let menuCache: { menu: Record<string, string>; at: number } | null = null
 
 async function loadMenu(db: D1Database): Promise<Record<string, string>> {
   if (menuCache && Date.now() - menuCache.at < 10 * 60_000) return menuCache.menu
-  const row = await db.prepare(`SELECT value FROM cartup_meta WHERE key = 'menu'`).first<{ value: string }>()
+  let row: { value: string } | null
+  try {
+    row = await db.prepare(`SELECT value FROM cartup_meta WHERE key = 'menu'`).first<{ value: string }>()
+  } catch {
+    // The database out of reach: no curated sections this time. Not remembered, so the next search tries again.
+    return {}
+  }
   const menu = row ? (JSON.parse(row.value) as Record<string, string>) : {}
   menuCache = { menu, at: Date.now() }
   return menu
@@ -396,7 +403,13 @@ let categoriesCache: { slugs: string[]; at: number } | null = null
 
 async function loadCategories(db: D1Database): Promise<string[]> {
   if (categoriesCache && Date.now() - categoriesCache.at < 10 * 60_000) return categoriesCache.slugs
-  const { results } = await db.prepare(`SELECT value FROM cartup_meta WHERE key LIKE 'categories:%'`).all<{ value: string }>()
+  let results: { value: string }[]
+  try {
+    ;({ results } = await db.prepare(`SELECT value FROM cartup_meta WHERE key LIKE 'categories:%'`).all<{ value: string }>())
+  } catch {
+    // The database out of reach: the copy bundled with the site (scripts/cartup-sections.mjs). Not remembered, so the next search tries again.
+    return SECTIONS
+  }
   const slugs = results.flatMap((r) => JSON.parse(r.value) as string[])
   categoriesCache = { slugs, at: Date.now() }
   return slugs

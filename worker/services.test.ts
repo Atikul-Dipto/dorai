@@ -16,6 +16,7 @@ import { runJobs } from '../jobs/index.ts'
 import { admit, forGuest, GUEST_ROWS, GUEST_SEARCHES, giveBack, guestCount, historyKey } from './access.ts'
 import { deleteAccount, logIn, profileKey, sessionUser, setHistory } from './accounts.ts'
 import { run } from './agent.ts'
+import { browse as browseCartup } from './cartup.ts'
 import { parseProductPage as parseDarazPage } from './daraz.ts'
 import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, MODEL_SINCE, normalizeTitle, parseListing, rescoreBacklog, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
@@ -157,12 +158,28 @@ function browser(env: { PP_DB: D1Database }, address = '203.0.113.1') {
 }
 const SIGNUP = { action: 'signup', email: 'Rahim@Example.com ', password: 'correct horse' }
 
-test("a database that can't be read (the free plan's daily reads used up): searches go ahead uncounted, and nothing answers a bare 500", async () => {
+/** A database that refuses every read, as D1 does once the free plan's daily reads are used up. */
+function deadDb(): D1Database {
   const refuse = async () => {
     throw new Error("D1_ERROR: Your account has exceeded D1's free tier daily row read limit.")
   }
   const statement = (): D1Statement => ({ bind: () => statement(), first: refuse, all: refuse, run: refuse }) as unknown as D1Statement
-  const db = { prepare: () => statement(), batch: refuse } as unknown as D1Database
+  return { prepare: () => statement(), batch: refuse } as unknown as D1Database
+}
+
+test("Cartup's sections are browsed even when the database can't be read: from the copy bundled with the site", async () => {
+  const seen: string[] = []
+  const browsed = await browseCartup(deadDb(), ['trimmer'], async (category) => {
+    seen.push(category)
+    return category.includes('trimmer') ? [listing('cartup:1', 'cartup', 'Kemei KM-6330 Hair Trimmer', 899)] : []
+  })
+  assert.ok(seen.some((c) => c.includes('trimmer')), seen.join(', ') || 'no section read')
+  assert.equal(browsed.unreachable, undefined)
+  assert.deepEqual(browsed.listings.map((l) => l.itemId), ['cartup:1'])
+})
+
+test("a database that can't be read (the free plan's daily reads used up): searches go ahead uncounted, and nothing answers a bare 500", async () => {
+  const db = deadDb()
   const request = (path: string) => new Request(`https://dorai-bd.pages.dev${path}`, { headers: { cookie: 'dorai_session=abc' } })
   const access = await admit(request('/api/pp/ask'), { PP_DB: db }, new Date('2026-11-11T06:00:00Z'))
   assert.equal(access.allowed, true)

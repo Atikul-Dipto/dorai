@@ -18,6 +18,10 @@ has the detail.
   reads, Cartup (looked up through DorAI's own name index) said it "isn't set
   up" or "doesn't sell that one". It now says it couldn't be reached, and
   that answer isn't cached, so Cartup comes back as soon as the database does.
+- **Cartup's sections work without the database.** A copy of Cartup's 4,550
+  section names is bundled with the site (`scripts/cartup-sections.mjs`), so a
+  kind of item ("trimmer", "electric kettle") is still browsed on Cartup when
+  the database can't be read. A named product still needs the name index.
 
 ## 2026-11-09
 

@@ -98,7 +98,10 @@ const metaCache = new Map<IndexName, { meta: Meta | null; at: number }>()
 async function loadMeta(db: D1Database, index: IndexName): Promise<Meta | null> {
   const cached = metaCache.get(index)
   if (cached && Date.now() - cached.at < 10 * 60_000) return cached.meta
-  const row = await db.prepare(`SELECT value FROM ${index}_meta WHERE key = 'index'`).first<{ value: string }>().catch(() => null)
+  // A failed read throws, and isn't remembered: "couldn't reach" for this
+  // search, not "isn't set up" for the next 10 minutes (the database was out
+  // of reads on 2026-11-11 and every search said Cartup "isn't set up").
+  const row = await db.prepare(`SELECT value FROM ${index}_meta WHERE key = 'index'`).first<{ value: string }>()
   const meta = row ? (JSON.parse(row.value) as Meta) : null
   metaCache.set(index, { meta, at: Date.now() })
   return meta
@@ -383,7 +386,7 @@ let menuCache: { menu: Record<string, string>; at: number } | null = null
 
 async function loadMenu(db: D1Database): Promise<Record<string, string>> {
   if (menuCache && Date.now() - menuCache.at < 10 * 60_000) return menuCache.menu
-  const row = await db.prepare(`SELECT value FROM cartup_meta WHERE key = 'menu'`).first<{ value: string }>().catch(() => null)
+  const row = await db.prepare(`SELECT value FROM cartup_meta WHERE key = 'menu'`).first<{ value: string }>()
   const menu = row ? (JSON.parse(row.value) as Record<string, string>) : {}
   menuCache = { menu, at: Date.now() }
   return menu
@@ -410,6 +413,7 @@ export interface Browsed {
   categories: string[]
   byCategory: Record<string, Listing[]>
   curated?: boolean // from Cartup's own menu: taken as the kind, whatever Daraz found
+  unreachable?: boolean // its sections couldn't be looked up (the database out of reach)
 }
 
 /** One category page's in-stock-or-not listings. */
@@ -432,7 +436,7 @@ export async function browse(db: D1Database | undefined, kinds: string[], read: 
     categories.forEach((c, i) => (byCategory[c] = pages[i].filter((l) => l.inStock && (menu.length > 0 || namesKind(l)))))
     return { listings: [...new Map(Object.values(byCategory).flat().map((l) => [l.itemId, l])).values()], categories, byCategory, curated: menu.length > 0 }
   } catch {
-    return none
+    return { ...none, unreachable: true }
   }
 }
 

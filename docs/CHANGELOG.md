@@ -14,6 +14,10 @@ has the detail.
 - **Cartup moved off `www.`:** `www.cartup.com` now answers 404 to every
   page, so every Cartup product read failed ("Cartup isn't showing this
   listing"). DorAI now reads `cartup.com`; old `www.` links still work.
+- **"Couldn't reach Cartup", said plainly.** While the database was out of
+  reads, Cartup (looked up through DorAI's own name index) said it "isn't set
+  up" or "doesn't sell that one". It now says it couldn't be reached, and
+  that answer isn't cached, so Cartup comes back as soon as the database does.
 
 ## 2026-11-09
 

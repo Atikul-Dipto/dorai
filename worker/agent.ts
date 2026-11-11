@@ -448,7 +448,10 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
     cartupStore.why = fit && needWhy(cartupStore.recommended!, intent, fit, shared === 'daraz' ? 'Daraz' : null)
     cartupStore.matches = matchesBesides(cartupRows, cartupStore.recommended)
     if (!fit)
-      cartupStore.note = categories.length
+      // Its sections and names are looked up in DorAI's own index: when that can't be read, nothing was checked.
+      cartupStore.note = (browsedRaw?.unreachable || found?.status === 'error') && !categories.length
+        ? "Couldn't reach Cartup just now — try again in a moment."
+        : categories.length
         ? `Nothing in Cartup's ${categories.map((c) => c.replace(/_\d+$/, '').replace(/_+/g, ' ')).join(' and ')} pages fits what you described.`
         : `Nothing on Cartup is listed as “${intent.searchQuery}”, and it has no section for this kind of item.`
   }
@@ -548,7 +551,9 @@ export async function run(input: AskInput, env: Env, now = new Date()): Promise<
       for (const store of stores) {
         const here = found.on[store.site]
         if (!here) {
-          store.note = `${store.label} doesn't sell that one; this is its own best fit.`
+          // A shop that couldn't be checked keeps saying so: it may well sell it.
+          if (!store.note?.startsWith("Couldn't reach"))
+            store.note = store.recommended ? `${store.label} doesn't sell that one; this is its own best fit.` : `${store.label} doesn't sell that one.`
           continue
         }
         const pick = toResult(firstOffer(here))

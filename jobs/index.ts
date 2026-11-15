@@ -16,6 +16,10 @@
  *   6. once a day, drops the link to a visitor from rows over a year old
  *      (worker/profiles.ts), and clears spent sessions and long-gone guests.
  *
+ * A second cron (:05 and :35) runs the self-checks instead (worker/health.ts):
+ * each shop's reader tried on something it sells, the owner told on Telegram
+ * when one keeps failing, the outcome at /api/pp/health.
+ *
  * A few checks per run on purpose: Daraz bot-checks bursts from Cloudflare,
  * and the free plan's CPU budget per run is small. 3 per 10 minutes is up to
  * ~430 checks a day, enough for ~100 watched products every 6 hours.
@@ -24,6 +28,7 @@
 import { tidyGuests } from '../worker/access.ts'
 import { tidySessions } from '../worker/accounts.ts'
 import { matchNewListings, rescoreBacklog } from '../worker/catalog.ts'
+import { selfCheck } from '../worker/health.ts'
 import { notify } from '../worker/notify.ts'
 import { expireProfiles } from '../worker/profiles.ts'
 import { claim, complete, fail, tidy } from '../worker/queue.ts'
@@ -119,8 +124,18 @@ export async function runJobs(env: Env, now = new Date()): Promise<{ checked: nu
   return done
 }
 
+/** The second cron in wrangler.toml: the self-checks, at :05 and :35. */
+export const HEALTH_CRON = '5,35 * * * *'
+
 export default {
-  async scheduled(_event: unknown, env: Env, ctx: { waitUntil(p: Promise<unknown>): void }) {
-    ctx.waitUntil(runJobs(env))
+  async scheduled(event: { cron?: string }, env: Env, ctx: { waitUntil(p: Promise<unknown>): void }) {
+    ctx.waitUntil(
+      event.cron === HEALTH_CRON
+        ? selfCheck(env).then((r) => {
+            const down = r.probes.filter((p) => !p.ok)
+            if (down.length || r.told.length) console.log('self-check', JSON.stringify({ down, told: r.told }))
+          })
+        : runJobs(env),
+    )
   },
 }

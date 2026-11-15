@@ -8,7 +8,8 @@ workers_dev = false
 preview_urls = false
 
 [triggers]
-crons = ["*/10 * * * *"]
+# Every 10 minutes: the jobs. At :05 and :35: the self-checks (HEALTH_CRON in index.ts).
+crons = ["*/10 * * * *", "5,35 * * * *"]
 
 [[d1_databases]]
 binding = "PP_DB"

@@ -29,6 +29,7 @@ Local copies live in `.dev.vars` (gitignored). Set a secret with
 | `TELEGRAM_BOT_TOKEN` | site + jobs, secret | From BotFather. Telegram stays off until set. |
 | `TELEGRAM_BOT_NAME` | site, plain setting in `wrangler.toml` | The bot's username, without @. |
 | `TELEGRAM_WEBHOOK_SECRET` | site, secret | Any random string; Telegram sends it back on every webhook call. |
+| `ALERT_TELEGRAM_CHAT` | jobs, secret | The owner's Telegram chat id. The self-checks (`worker/health.ts`, twice an hour) send "X has been failing since…" and "X is back" there. Get the id by messaging `@userinfobot` on Telegram, then `npx wrangler secret put ALERT_TELEGRAM_CHAT --config jobs/wrangler.toml`. Without it the checks still run and show at `/api/pp/health`. |
 
 ## Turning on Telegram alerts
 

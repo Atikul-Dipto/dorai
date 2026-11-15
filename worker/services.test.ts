@@ -16,7 +16,8 @@ import { runJobs } from '../jobs/index.ts'
 import { admit, forGuest, GUEST_ROWS, GUEST_SEARCHES, giveBack, guestCount, historyKey } from './access.ts'
 import { deleteAccount, logIn, profileKey, sessionUser, setHistory } from './accounts.ts'
 import { run } from './agent.ts'
-import { browse as browseCartup } from './cartup.ts'
+import { browse as browseCartup, pickCategories } from './cartup.ts'
+import { readHealth, recordHealth } from './health.ts'
 import { parseProductPage as parseDarazPage } from './daraz.ts'
 import { confidence, decideReview, findProducts, levelOf, matchListing, matchNewListings, MODEL_SINCE, normalizeTitle, parseListing, rescoreBacklog, type StoredListing } from './catalog.ts'
 import { allow, authDevice, registerDevice } from './devices.ts'
@@ -29,7 +30,7 @@ import { dropWorthTelling, putWatches, readWatch } from './watchlist.ts'
 
 function freshDb(): { db: D1Database; raw: DatabaseSync } {
   const raw = new DatabaseSync(':memory:')
-  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql', '0005_visitor_profiles.sql', '0006_accounts.sql', '0007_rescore_backlog.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
+  for (const file of ['0001_init.sql', '0002_architecture.sql', '0003_matching_engine.sql', '0004_interactions.sql', '0005_visitor_profiles.sql', '0006_accounts.sql', '0007_rescore_backlog.sql', '0008_health.sql']) raw.exec(readFileSync(new URL(`./migrations/${file}`, import.meta.url), 'utf8'))
   // Plain objects, as D1 returns (node:sqlite's rows have no prototype).
   const plain = (row: unknown) => (row ? { ...(row as object) } : null)
   const statement = (sql: string, params: unknown[] = []): D1Statement => ({
@@ -176,6 +177,41 @@ test("Cartup's sections are browsed even when the database can't be read: from t
   assert.ok(seen.some((c) => c.includes('trimmer')), seen.join(', ') || 'no section read')
   assert.equal(browsed.unreachable, undefined)
   assert.deepEqual(browsed.listings.map((l) => l.itemId), ['cartup:1'])
+})
+
+test('Cartup sections: a kind whose words name no section falls back to its last word, when a section is called exactly that', () => {
+  const all = ['mice', 'mouse_pads', 'keyboards', 'phones', 'phone_cases', 'body_wash']
+  assert.deepEqual(pickCategories(['wireless mouse'], all), ['mice'])
+  assert.deepEqual(pickCategories(['mouse'], all), ['mice'])
+  assert.deepEqual(pickCategories(['phone case'], all), ['phone_cases']) // an accessory asked for stays one
+  assert.deepEqual(pickCategories(['face wash'], all), []) // "body_wash" isn't "wash" alone
+})
+
+test('self-checks: a shop failing twice in a row is reported once, and its return once; the record shows the state', async () => {
+  const { db } = freshDb()
+  const told: string[] = []
+  const tell = async (text: string) => {
+    told.push(text)
+  }
+  const at = (m: number) => `2026-11-15T10:${String(m).padStart(2, '0')}:00.000Z`
+  const probes = (cartupOk: boolean) => [
+    { site: 'cartup' as const, ok: cartupOk, detail: cartupOk ? '' : 'the "mice" section page had no listings' },
+    { site: 'daraz' as const, ok: true, detail: '' },
+  ]
+  await recordHealth(db, probes(false), at(5), tell)
+  assert.deepEqual(told, []) // one failed check could be a hiccup
+  await recordHealth(db, probes(false), at(35), tell)
+  assert.equal(told.length, 1)
+  assert.match(told[0], /Cartup has been failing since 2026-11-15 10:05 UTC: the "mice" section/)
+  await recordHealth(db, probes(false), at(45), tell)
+  assert.equal(told.length, 1) // still down: not said again
+  const down = (await readHealth(db)).find((h) => h.site === 'cartup')!
+  assert.deepEqual([down.ok, down.failingSince, down.label], [false, at(5), 'Cartup'])
+  await recordHealth(db, probes(true), at(55), tell)
+  assert.deepEqual(told.slice(1), ['DorAI: Cartup is back.'])
+  const back = (await readHealth(db)).find((h) => h.site === 'cartup')!
+  assert.deepEqual([back.ok, back.failingSince, back.detail], [true, null, ''])
+  assert.equal((await readHealth(db)).find((h) => h.site === 'daraz')?.ok, true)
 })
 
 test("a database that can't be read (the free plan's daily reads used up): searches go ahead uncounted, and nothing answers a bare 500", async () => {

@@ -86,6 +86,8 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string
   TELEGRAM_BOT_NAME?: string
   TELEGRAM_WEBHOOK_SECRET?: string
+  // The owner's Telegram chat: where the self-checks (health.ts) report a shop that keeps failing.
+  ALERT_TELEGRAM_CHAT?: string
   // Salt for the hashed caller keys the rate limits count by.
   RATE_SALT?: string
   // This site's own address: with it, store reads run as their own requests (parts.ts).

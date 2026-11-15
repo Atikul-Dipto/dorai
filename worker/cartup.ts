@@ -359,8 +359,20 @@ export function pickCategories(kinds: string[], all: string[], limit = 2): strin
       .sort((a, b) => b.score - a.score)
     if (scored.length && (!best.length || scored[0].score > best[0].score)) best = scored
   }
-  if (!best.length) return []
-  return best.filter((c) => c.score >= best[0].score - 1e-9).slice(0, limit).map((c) => c.slug)
+  if (best.length) return best.filter((c) => c.score >= best[0].score - 1e-9).slice(0, limit).map((c) => c.slug)
+  // "wireless mouse" names no section and "mice" is one: the kind's last word
+  // alone, when a section is called exactly that and nothing accessory was asked for.
+  for (const kind of kinds) {
+    const want = [...new Set(tokens(kind).map(stem))]
+    if (want.length < 2 || want.some((w) => ACCESSORY_CATEGORY.has(w))) continue
+    const noun = want[want.length - 1]
+    const exact = all.filter((slug) => {
+      const have = categoryWords(slug)
+      return have.length === 1 && have[0] === noun
+    })
+    if (exact.length) return exact.slice(0, limit)
+  }
+  return []
 }
 
 // Cartup's own menu (Phones, Groceries...), recorded weekly by the indexer:

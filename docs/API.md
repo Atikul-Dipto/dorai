@@ -154,3 +154,15 @@ The matching engine's manual review (`worker/catalog.ts`; the page is
 POST `{ id, decision: "same" | "different" }`: decides it, and the pending
 reviews of the same title from other sellers. Answer: `{ decided }` (how
 many).
+
+## GET /api/pp/health
+
+Each shop's last self-check and the database's (`worker/health.ts`, run at :05
+and :35 every hour by the jobs worker). Public.
+
+```json
+{ "shops": [ { "site": "cartup", "label": "Cartup", "ok": false, "detail": "the \"mice\" section page had no listings",
+               "checkedAt": "2026-11-15T10:35:00.000Z", "failingSince": "2026-11-15T10:05:00.000Z" }, ... ] }
+```
+
+503 with `error` when the database itself can't be read.

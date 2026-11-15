@@ -3,6 +3,17 @@
 What changed for shoppers and for the system, newest first. Commit history
 has the detail.
 
+## 2026-11-15
+
+- **Self-checks.** At :05 and :35 every hour each shop's reader is tried on
+  something the shop certainly sells (Daraz through the polite cache), and the
+  database on a trivial read. The outcome is public at `/api/pp/health`.
+  When a shop fails two checks in a row the owner is told once on Telegram
+  (`ALERT_TELEGRAM_CHAT`, see OPERATIONS.md), and once more when it's back.
+  Cartup's move off `www` would have been known within the hour.
+- **"wireless mouse" finds Cartup's "mice" section:** a kind whose words name
+  no section falls back to its last word, when a section is called exactly that.
+
 ## 2026-11-11
 
 - **Searches failed with "The agent answered 500" for everyone.** A query
